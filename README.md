@@ -62,7 +62,7 @@ We offer both **individual equipment rentals** and **package/bundle rentals** to
 
 ### Ready to Make Your Event Unforgettable?
 
-Click [**here**](https://castello96.github.io/Sounds-Good-AV/) to rent your equipment now!
+Call or email to request a quote!
 
 ---
 
