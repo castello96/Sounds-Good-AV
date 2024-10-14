@@ -8,7 +8,6 @@ We provide top-tier **audio-visual equipment** for all your event needs. Whether
 
 -   📦 **Wide Selection** of AV equipment including sound systems, microphones, and more.
 -   💼 **Flexible Rental Options**: Self-service equipment pickup or fully managed setup and breakdown services.
--   🚚 **Convenient Pickup & Return**: Available at Westbury Galleria, with pre-packaged equipment ready to go.
 -   🔧 **Professional Assistance**: Expert setup and breakdown for managed services.
 
 ---
@@ -17,7 +16,7 @@ We provide top-tier **audio-visual equipment** for all your event needs. Whether
 
 ### Self-Service Equipment Rental
 
-For those who prefer a more hands-on approach, our self-service option allows you to pick up and return the equipment yourself. We’ll handle the packaging, and you can collect your rental from our centrally located pick-up location. This option is perfect for those who are confident in setting up their own equipment but need high-quality gear for their event.
+For those who prefer a more hands-on approach, our self-service option allows you to pick up and return the equipment yourself. We’ll handle the packaging, and you can collect your rental from our centrally located pick-up spot. This option is perfect for those who are confident in setting up their own equipment but need high-quality gear for their event.
 
 ### Managed Service
 
@@ -55,7 +54,7 @@ We offer both **individual equipment rentals** and **package/bundle rentals** to
 
 📧 **Email**: [info@soundsgoodav.com](mailto:info@soundsgoodav.com)
 
-📞 **Phone**: (123) 456-7890
+📞 **Phone**: (516) 382-4385
 
 🌐 **Website**: [www.soundsgoodav.com](https://castello96.github.io/Sounds-Good-AV/)
 
