@@ -4,10 +4,45 @@
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>Contact Us - Sounds Good AV Rentals</title>
+        <script
+            type="text/javascript"
+            src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"
+        ></script>
+        <script type="text/javascript">
+            (function () {
+                emailjs.init({
+                    publicKey: "5OD8p3-rx2cLTfaps",
+                });
+            })();
+        </script>
+        <script type="text/javascript">
+            window.onload = function () {
+                document
+                    .getElementById("contact-form")
+                    .addEventListener("submit", function (event) {
+                        event.preventDefault();
+                        emailjs
+                            .sendForm(
+                                "service_onhjx6k",
+                                "contact_us_form",
+                                this
+                            )
+                            .then(
+                                () => {
+                                    alert("Message sent successfully!");
+                                },
+                                error => {
+                                    alert(
+                                        "Failed to send message: " +
+                                            JSON.stringify(error)
+                                    );
+                                }
+                            );
+                    });
+            };
+        </script>
         <link rel="stylesheet" href="css/style.css" />
         <link rel="stylesheet" href="css/contact.css" />
-        <script src="https://cdn.emailjs.com/dist/email.min.js"></script>
-        <script src="email.js"></script>
         <script src="js/includes.js" defer></script>
     </head>
     <body>
@@ -54,6 +89,26 @@
                     name="user_phone"
                     required
                     placeholder="Your Phone Number"
+                />
+
+                <label for="event_type">Event Type (Optional):</label>
+                <select id="event_type" name="event_type">
+                    <option value="" disabled selected>
+                        Select your event type
+                    </option>
+                    <option value="wedding">Wedding</option>
+                    <option value="corporate">Corporate Event</option>
+                    <option value="party">Party</option>
+                    <option value="live_performance">Live Performance</option>
+                    <option value="other">Other</option>
+                </select>
+
+                <label for="preferred_date">Preferred Date (Optional):</label>
+                <input
+                    type="date"
+                    id="preferred_date"
+                    name="preferred_date"
+                    placeholder="MM/DD/YYYY"
                 />
 
                 <label for="message">Message:</label>
