@@ -6,13 +6,26 @@ body {
     background-color: #f4f4f9;
     color: #333;
 }
-header,
-footer {
-    background: #333;
-    color: #fff;
-    padding: 20px;
+
+/* Header Content Styles */
+.header-content {
     text-align: center;
+    padding: 30px 20px;
+    background: #333; /* Different background color for the header content */
+    color: #fff;
 }
+
+.header-content h1 {
+    margin: 0;
+    font-size: 2.5em;
+}
+
+.header-content p {
+    margin: 10px 0 0;
+    font-size: 1.2em;
+    line-height: 1.4;
+}
+
 header h1 {
     margin: 0;
 }
@@ -36,12 +49,4 @@ a {
 }
 a:hover {
     text-decoration: underline;
-}
-.contact-info {
-    text-align: center;
-    margin-top: 20px;
-}
-footer p {
-    margin: 0;
-    font-size: 0.9em;
 }
