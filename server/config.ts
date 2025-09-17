@@ -39,7 +39,7 @@ const config = convict({
     toEmail: {
       doc: 'Email address to receive contact form submissions',
       format: String,
-      default: 'admin@soundsgoodav.com',
+      default: 'info@soundsgoodav.com',
       env: 'TO_EMAIL'
     }
   }
