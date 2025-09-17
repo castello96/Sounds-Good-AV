@@ -21,15 +21,6 @@ const config = convict({
       default: '127.0.0.1',
       env: 'HOST'
     }
-  },
-  database: {
-    url: {
-      doc: 'Database connection URL',
-      format: String,
-      default: '',
-      env: 'DATABASE_URL',
-      sensitive: true
-    }
   }
 });
 
