@@ -2,10 +2,13 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { insertQuoteRequestSchema } from "@shared/schema";
 import { z } from "zod";
+import config from "./config";
 
 async function sendEmailNotification(quoteData: any) {
-  const TO_EMAIL = process.env.TO_EMAIL || "admin@soundsgoodav.com";
-  const FROM_EMAIL = process.env.FROM_EMAIL || "noreply@soundsgoodav.com";
+  const TO_EMAIL = config.get("email.toEmail");
+  const FROM_EMAIL = config.get("email.fromEmail");
+  const RESEND_API_KEY = config.get("email.resendApiKey");
+  const ENV = config.get("env");
   
   const subject = `New Quote Request from ${quoteData.name} - ${quoteData.eventType}`;
   const text = `
@@ -24,18 +27,16 @@ ${quoteData.message || 'No additional message'}
 Submitted via Sounds Good AV website contact form
   `.trim();
 
-  console.log('Email notification (would send to):', TO_EMAIL);
-  console.log('Subject:', subject);
-  console.log('Message:', text);
+  console.log(`📧 Email notification to: ${TO_EMAIL}`);
+  console.log(`📄 Subject: ${subject}`);
   
-  // In development, just log the email. In production, you would implement actual email sending
-  // using a service like Resend, SendGrid, or SMTP
-  if (process.env.NODE_ENV === 'production' && process.env.RESEND_API_KEY) {
+  // Send email if API key is configured (works in development too for testing)
+  if (RESEND_API_KEY) {
     try {
       const response = await fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+          'Authorization': `Bearer ${RESEND_API_KEY}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -50,13 +51,16 @@ Submitted via Sounds Good AV website contact form
         throw new Error(`Email API error: ${response.status}`);
       }
       
-      console.log('Email sent successfully');
+      console.log('✅ Email sent successfully via Resend');
     } catch (error) {
-      console.error('Failed to send email:', error);
+      console.error('❌ Failed to send email:', error);
       throw error;
     }
   } else {
-    console.log('Development mode: Email notification logged above');
+    console.log('📝 Email sending disabled (no RESEND_API_KEY configured)');
+    if (ENV === 'development') {
+      console.log('💡 To test email sending, sign up at https://resend.com and set RESEND_API_KEY');
+    }
   }
 }
 

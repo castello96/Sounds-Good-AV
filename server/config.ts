@@ -21,6 +21,27 @@ const config = convict({
       default: '127.0.0.1',
       env: 'HOST'
     }
+  },
+  email: {
+    resendApiKey: {
+      doc: 'Resend API key for sending emails',
+      format: String,
+      default: '',
+      env: 'RESEND_API_KEY',
+      sensitive: true
+    },
+    fromEmail: {
+      doc: 'Email address to send from',
+      format: String,
+      default: 'noreply@soundsgoodav.com',
+      env: 'FROM_EMAIL'
+    },
+    toEmail: {
+      doc: 'Email address to receive contact form submissions',
+      format: String,
+      default: 'admin@soundsgoodav.com',
+      env: 'TO_EMAIL'
+    }
   }
 });
 
