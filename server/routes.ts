@@ -65,6 +65,15 @@ Submitted via Sounds Good AV website contact form
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Health check endpoint for monitoring
+  app.get("/api/health", (req, res) => {
+    res.status(200).json({ 
+      status: "healthy", 
+      timestamp: new Date().toISOString(),
+      environment: config.get("env")
+    });
+  });
+
   // Quote request endpoint - sends email notification
   app.post("/api/quote-requests", async (req, res) => {
     try {

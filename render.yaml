@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: soundsgoodav
+    env: node
+    plan: free
+    buildCommand: npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        fromService:
+          type: web
+          name: soundsgoodav
+          property: port
+    # Add your email environment variables in Render dashboard:
+    # RESEND_API_KEY, FROM_EMAIL, TO_EMAIL
