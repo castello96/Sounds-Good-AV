@@ -22,8 +22,8 @@ A modern, responsive website for Sounds Good AV with contact form and email noti
 3. **Set Environment Variables:**
    ```
    RESEND_API_KEY=your_resend_api_key_here
-   FROM_EMAIL=noreply@yourdomain.com  
-   TO_EMAIL=your@email.com
+   FROM_EMAIL=noreply@soundsgoodav.com  
+   TO_EMAIL=info@soundsgoodav.com
    ```
 
 4. **Deploy!** ✅
@@ -34,6 +34,12 @@ A modern, responsive website for Sounds Good AV with contact form and email noti
 2. Get your API key from the dashboard
 3. Add the API key to Render environment variables
 4. For production: verify your domain with Resend
+
+**How Email Works:**
+- **FROM**: `noreply@soundsgoodav.com` (your verified domain)
+- **TO**: `info@soundsgoodav.com` (where you receive contact forms)
+- **REPLY-TO**: Customer's email (when you hit reply, goes to customer)
+- **Benefits**: Professional, great deliverability, easy to respond to customers
 
 ### 🛠 Local Development:
 

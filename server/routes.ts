@@ -44,6 +44,7 @@ Submitted via Sounds Good AV website contact form
           to: TO_EMAIL,
           subject: subject,
           text: text,
+          reply_to: quoteData.email, // Customer's email for easy replies
         }),
       });
       
