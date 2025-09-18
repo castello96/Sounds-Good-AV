@@ -6,7 +6,7 @@ const services = [
     icon: Music,
     title: "Bands",
     description: "High-quality sound systems and professional audio equipment for live performances and concerts.",
-    features: ["Professional mixing boards", "Stage monitors", "PA systems", "Wireless microphones"]
+    features: ["Professional mixing boards", "Staging", "PA systems / monitors", "Wireless microphones"]
   },
   {
     icon: PartyPopper,

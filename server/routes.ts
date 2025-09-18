@@ -55,6 +55,12 @@ Submitted via Sounds Good AV website contact form
       console.log('✅ Email sent successfully via Resend');
     } catch (error) {
       console.error('❌ Failed to send email:', error);
+      console.error('📧 Email details:', {
+        from: FROM_EMAIL,
+        to: TO_EMAIL,
+        apiKeyPresent: !!RESEND_API_KEY,
+        apiKeyLength: RESEND_API_KEY ? RESEND_API_KEY.length : 0
+      });
       throw error;
     }
   } else {

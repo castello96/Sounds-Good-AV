@@ -5,7 +5,7 @@ const benefits = [
   {
     icon: Package,
     title: "Wide Selection",
-    description: "Extensive inventory of professional AV equipment including sound systems, microphones, speakers, and more to meet any event requirement."
+    description: "Extensive inventory of professional AV equipment including sound systems, microphones, speakers, staging, and more to meet any event requirement."
   },
   {
     icon: Settings,
