@@ -1,76 +1,147 @@
-import { useState } from "react";
+import { useForm, type Control, type FieldPath } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Mail, Phone, MapPin, Clock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useMutation } from "@tanstack/react-query";
+import {
+  DELIVERY_TYPES,
+  DELIVERY_TYPE_LABELS,
+  DELIVERY_UNSURE,
+  EVENT_TYPES,
+  EVENT_TYPE_LABELS,
+  quoteRequestSchema,
+  type QuoteRequest,
+  type QuoteRequestInput,
+} from "@shared/schema";
+
+const EMPTY_FORM: QuoteRequestInput = {
+  firstName: "",
+  lastName: "",
+  email: "",
+  phone: "",
+  companyName: "",
+  eventType: "" as QuoteRequestInput["eventType"],
+  startDate: "",
+  startTime: "",
+  endDate: "",
+  endTime: "",
+  deliveryType: DELIVERY_UNSURE,
+  venueName: "",
+  venueLine1: "",
+  venueLine2: "",
+  venueCity: "",
+  venueState: "",
+  venueZip: "",
+  requestDetails: "",
+  website: "",
+};
+
+const DELIVERY_OPTIONS = [
+  ...DELIVERY_TYPES.map((value) => ({ value, ...DELIVERY_TYPE_LABELS[value] })),
+  { value: DELIVERY_UNSURE, label: "Not sure yet", description: "We'll help you decide" },
+];
+
+// Local date in YYYY-MM-DD, for the date inputs' min attribute.
+const today = () => new Date().toLocaleDateString("en-CA");
+
+function TextField({
+  control,
+  name,
+  label,
+  type = "text",
+  placeholder,
+  autoComplete,
+  min,
+}: {
+  control: Control<QuoteRequestInput>;
+  name: FieldPath<QuoteRequestInput>;
+  label: string;
+  type?: string;
+  placeholder?: string;
+  autoComplete?: string;
+  min?: string;
+}) {
+  return (
+    <FormField
+      control={control}
+      name={name}
+      render={({ field }) => (
+        <FormItem>
+          <FormLabel>{label}</FormLabel>
+          <FormControl>
+            <Input
+              {...field}
+              value={field.value ?? ""}
+              type={type}
+              placeholder={placeholder}
+              autoComplete={autoComplete}
+              min={min}
+              data-testid={`input-${name}`}
+            />
+          </FormControl>
+          <FormMessage />
+        </FormItem>
+      )}
+    />
+  );
+}
 
 export default function Contact() {
-  const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    phone: '',
-    eventType: '',
-    eventDate: '',
-    message: ''
-  });
   const { toast } = useToast();
+  const form = useForm<QuoteRequestInput, unknown, QuoteRequest>({
+    resolver: zodResolver(quoteRequestSchema),
+    defaultValues: EMPTY_FORM,
+  });
+  const { control } = form;
+
+  const deliveryType = form.watch("deliveryType");
+  const startDate = form.watch("startDate");
+  const venueNeeded = deliveryType !== "pickup";
+  const venueRequired = venueNeeded && deliveryType !== DELIVERY_UNSURE;
 
   const submitQuoteMutation = useMutation({
-    mutationFn: async (data: typeof formData) => {
-      const response = await fetch('/api/quote-requests', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+    mutationFn: async (data: QuoteRequest) => {
+      const response = await fetch("/api/quote-requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       });
-      
+      const body = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error('Failed to submit quote request');
+        throw new Error(body.error || "Failed to submit quote request");
       }
-      
-      return response.json();
+      return body;
     },
     onSuccess: (response) => {
-      console.log('Quote request submitted successfully:', response);
       toast({
         title: "Quote Request Submitted",
         description: response.message || "We'll get back to you within 24 hours with your custom quote.",
       });
-      // Reset form
-      setFormData({
-        name: '',
-        email: '',
-        phone: '',
-        eventType: '',
-        eventDate: '',
-        message: ''
-      });
+      form.reset(EMPTY_FORM);
     },
     onError: (error) => {
-      console.error('Error submitting quote request:', error);
       toast({
         title: "Error",
         description: error.message || "There was an error submitting your quote request. Please try again.",
         variant: "destructive",
       });
-    }
+    },
   });
 
-  const handleInputChange = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-    console.log(`${field} updated:`, value);
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    console.log('Contact form submitted:', formData);
-    submitQuoteMutation.mutate(formData);
+  const onSubmit = (data: QuoteRequest) => {
+    // Pickup bookings don't need a venue; drop anything typed before switching to pickup.
+    if (data.deliveryType === "pickup") {
+      data = { ...data, venueName: undefined, venueLine1: undefined, venueLine2: undefined,
+        venueCity: undefined, venueState: undefined, venueZip: undefined };
+    }
+    submitQuoteMutation.mutate(data);
   };
 
   return (
@@ -93,91 +164,180 @@ export default function Contact() {
                 <CardTitle className="text-xl text-card-foreground">Request a Quote</CardTitle>
               </CardHeader>
               <CardContent>
-                <form onSubmit={handleSubmit} className="space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="name">Full Name</Label>
-                      <Input
-                        id="name"
-                        value={formData.name}
-                        onChange={(e) => handleInputChange('name', e.target.value)}
-                        placeholder="Enter your full name"
-                        required
-                        data-testid="input-name"
+                <Form {...form}>
+                  <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8" noValidate>
+                    {/* About you */}
+                    <fieldset className="space-y-4">
+                      <legend className="text-sm font-semibold text-foreground mb-2">About you</legend>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <TextField control={control} name="firstName" label="First Name" autoComplete="given-name" />
+                        <TextField control={control} name="lastName" label="Last Name" autoComplete="family-name" />
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <TextField control={control} name="email" label="Email" type="email" autoComplete="email" />
+                        <TextField control={control} name="phone" label="Phone Number (optional)" type="tel" autoComplete="tel" />
+                      </div>
+                      <TextField control={control} name="companyName" label="Company or Organization (optional)" autoComplete="organization" />
+                    </fieldset>
+
+                    {/* The event */}
+                    <fieldset className="space-y-4">
+                      <legend className="text-sm font-semibold text-foreground mb-2">Your event</legend>
+                      <FormField
+                        control={control}
+                        name="eventType"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Event Type</FormLabel>
+                            <Select onValueChange={field.onChange} value={field.value}>
+                              <FormControl>
+                                <SelectTrigger data-testid="select-event-type">
+                                  <SelectValue placeholder="Select event type" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                {EVENT_TYPES.map((type) => (
+                                  <SelectItem key={type} value={type}>
+                                    {EVENT_TYPE_LABELS[type]}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
                       />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="email">Email</Label>
-                      <Input
-                        id="email"
-                        type="email"
-                        value={formData.email}
-                        onChange={(e) => handleInputChange('email', e.target.value)}
-                        placeholder="Enter your email"
-                        required
-                        data-testid="input-email"
+                      <div className="grid grid-cols-2 gap-4">
+                        <FormField
+                          control={control}
+                          name="startDate"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Start Date</FormLabel>
+                              <FormControl>
+                                <Input
+                                  {...field}
+                                  type="date"
+                                  min={today()}
+                                  data-testid="input-startDate"
+                                  onChange={(e) => {
+                                    field.onChange(e);
+                                    // Most events are one day: default the end date to the start date.
+                                    const end = form.getValues("endDate");
+                                    if (!end || end < e.target.value) {
+                                      form.setValue("endDate", e.target.value);
+                                    }
+                                  }}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <TextField control={control} name="startTime" label="Start Time" type="time" />
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <TextField control={control} name="endDate" label="End Date" type="date" min={startDate || today()} />
+                        <TextField control={control} name="endTime" label="End Time" type="time" />
+                      </div>
+                      <p className="text-xs text-muted-foreground -mt-2">
+                        Approximate times are fine. Multi-day event? Just set a later end date.
+                      </p>
+                    </fieldset>
+
+                    {/* Delivery */}
+                    <fieldset className="space-y-4">
+                      <legend className="text-sm font-semibold text-foreground mb-2">How should we get the gear to you?</legend>
+                      <FormField
+                        control={control}
+                        name="deliveryType"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormControl>
+                              <RadioGroup
+                                onValueChange={field.onChange}
+                                value={field.value}
+                                className="grid grid-cols-1 sm:grid-cols-2 gap-3"
+                              >
+                                {DELIVERY_OPTIONS.map((option) => (
+                                  <FormItem key={option.value} className="space-y-0">
+                                    <FormLabel
+                                      className="flex items-start gap-3 rounded-md border p-3 cursor-pointer font-normal hover-elevate has-[:checked]:border-primary"
+                                      data-testid={`radio-delivery-${option.value}`}
+                                    >
+                                      <FormControl>
+                                        <RadioGroupItem value={option.value} className="mt-0.5" />
+                                      </FormControl>
+                                      <span className="space-y-1">
+                                        <span className="block font-medium text-foreground">{option.label}</span>
+                                        <span className="block text-xs text-muted-foreground">{option.description}</span>
+                                      </span>
+                                    </FormLabel>
+                                  </FormItem>
+                                ))}
+                              </RadioGroup>
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
                       />
-                    </div>
-                  </div>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="phone">Phone Number</Label>
-                      <Input
-                        id="phone"
-                        type="tel"
-                        value={formData.phone}
-                        onChange={(e) => handleInputChange('phone', e.target.value)}
-                        placeholder="Enter your phone number"
-                        data-testid="input-phone"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="eventType">Event Type</Label>
-                      <Select onValueChange={(value) => handleInputChange('eventType', value)} value={formData.eventType}>
-                        <SelectTrigger data-testid="select-event-type">
-                          <SelectValue placeholder="Select event type" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="band">Band Performance</SelectItem>
-                          <SelectItem value="wedding">Wedding</SelectItem>
-                          <SelectItem value="corporate">Corporate Event</SelectItem>
-                          <SelectItem value="podcast">Podcast Recording</SelectItem>
-                          <SelectItem value="presentation">Presentation/Conference</SelectItem>
-                          <SelectItem value="party">Private Party</SelectItem>
-                          <SelectItem value="other">Other</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="eventDate">Event Date</Label>
-                    <Input
-                      id="eventDate"
-                      type="date"
-                      value={formData.eventDate}
-                      onChange={(e) => handleInputChange('eventDate', e.target.value)}
-                      data-testid="input-event-date"
+                    </fieldset>
+
+                    {/* Venue */}
+                    {venueNeeded && (
+                      <fieldset className="space-y-4">
+                        <legend className="text-sm font-semibold text-foreground mb-2">
+                          Venue {venueRequired ? "" : <span className="font-normal text-muted-foreground">(optional)</span>}
+                        </legend>
+                        <TextField control={control} name="venueName" label="Venue Name (optional)" placeholder="e.g. Oheka Castle" />
+                        <TextField control={control} name="venueLine1" label="Street Address" autoComplete="address-line1" />
+                        <TextField control={control} name="venueLine2" label="Apt, Suite, Floor (optional)" autoComplete="address-line2" />
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                          <div className="col-span-2">
+                            <TextField control={control} name="venueCity" label="City" autoComplete="address-level2" />
+                          </div>
+                          <TextField control={control} name="venueState" label="State" autoComplete="address-level1" />
+                          <TextField control={control} name="venueZip" label="ZIP" autoComplete="postal-code" />
+                        </div>
+                      </fieldset>
+                    )}
+
+                    <FormField
+                      control={control}
+                      name="requestDetails"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Event Details</FormLabel>
+                          <FormControl>
+                            <Textarea
+                              {...field}
+                              placeholder="Tell us about your event: expected attendance, indoor or outdoor, and any specific equipment needs..."
+                              rows={5}
+                              data-testid="textarea-requestDetails"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
                     />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="message">Event Details</Label>
-                    <Textarea
-                      id="message"
-                      value={formData.message}
-                      onChange={(e) => handleInputChange('message', e.target.value)}
-                      placeholder="Tell us about your event, venue size, expected attendance, and specific equipment needs..."
-                      rows={4}
-                      data-testid="textarea-message"
-                    />
-                  </div>
-                  
-                  <Button type="submit" size="lg" className="w-full" data-testid="button-submit-quote">
-                    Submit Quote Request
-                  </Button>
-                </form>
+
+                    {/* Honeypot: hidden from people, bots fill it in. */}
+                    <div className="absolute -left-[9999px] h-0 w-0 overflow-hidden" aria-hidden="true">
+                      <label htmlFor="website">Website</label>
+                      <input id="website" tabIndex={-1} autoComplete="off" {...form.register("website")} />
+                    </div>
+
+                    <Button
+                      type="submit"
+                      size="lg"
+                      className="w-full"
+                      disabled={submitQuoteMutation.isPending}
+                      data-testid="button-submit-quote"
+                    >
+                      {submitQuoteMutation.isPending ? "Submitting..." : "Submit Quote Request"}
+                    </Button>
+                  </form>
+                </Form>
               </CardContent>
             </Card>
           </div>

@@ -1,116 +1,70 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
-import { insertQuoteRequestSchema } from "@shared/schema";
+import rateLimit from "express-rate-limit";
+import { quoteRequestSchema } from "@shared/schema";
 import { z } from "zod";
 import config from "./config";
+import { createInquiry } from "./services/quoteRequests";
+import { sendQuoteRequestNotification } from "./services/email";
 
-async function sendEmailNotification(quoteData: any) {
-  const TO_EMAIL = config.get("email.toEmail");
-  const FROM_EMAIL = config.get("email.fromEmail");
-  const RESEND_API_KEY = config.get("email.resendApiKey");
-  const ENV = config.get("env");
-  
-  const subject = `New Quote Request from ${quoteData.name} - ${quoteData.eventType}`;
-  const text = `
-New quote request received from your website:
-
-Name: ${quoteData.name}
-Email: ${quoteData.email}
-Phone: ${quoteData.phone || 'Not provided'}
-Event Type: ${quoteData.eventType}
-Event Date: ${quoteData.eventDate || 'Not specified'}
-
-Message:
-${quoteData.message || 'No additional message'}
-
----
-Submitted via Sounds Good AV website contact form
-  `.trim();
-
-  console.log(`📧 Email notification to: ${TO_EMAIL}`);
-  console.log(`📄 Subject: ${subject}`);
-  
-  // Send email if API key is configured (works in development too for testing)
-  if (RESEND_API_KEY) {
-    try {
-      const response = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${RESEND_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          from: FROM_EMAIL,
-          to: TO_EMAIL,
-          subject: subject,
-          text: text,
-          reply_to: quoteData.email, // Customer's email for easy replies
-        }),
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Email API error: ${response.status}`);
-      }
-      
-      console.log('✅ Email sent successfully via Resend');
-    } catch (error) {
-      console.error('❌ Failed to send email:', error);
-      console.error('📧 Email details:', {
-        from: FROM_EMAIL,
-        to: TO_EMAIL,
-        apiKeyPresent: !!RESEND_API_KEY,
-        apiKeyLength: RESEND_API_KEY ? RESEND_API_KEY.length : 0
-      });
-      throw error;
-    }
-  } else {
-    console.log('📝 Email sending disabled (no RESEND_API_KEY configured)');
-    if (ENV === 'development') {
-      console.log('💡 To test email sending, sign up at https://resend.com and set RESEND_API_KEY');
-    }
-  }
-}
+const quoteRequestLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: {
+    success: false,
+    error: "Too many quote requests. Please wait a few minutes or call us directly.",
+  },
+});
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Health check endpoint for monitoring
   app.get("/api/health", (req, res) => {
-    res.status(200).json({ 
-      status: "healthy", 
+    res.status(200).json({
+      status: "healthy",
       timestamp: new Date().toISOString(),
       environment: config.get("env")
     });
   });
 
-  // Quote request endpoint - sends email notification
-  app.post("/api/quote-requests", async (req, res) => {
+  // Quote request endpoint - stores an inquiry booking and notifies staff by email
+  app.post("/api/quote-requests", quoteRequestLimiter, async (req, res) => {
+    const successMessage = "Quote request submitted successfully. We'll get back to you within 24 hours!";
+
     try {
-      const validatedData = insertQuoteRequestSchema.parse(req.body);
-      
-      console.log('New quote request received:', {
-        name: validatedData.name,
-        email: validatedData.email,
-        eventType: validatedData.eventType
-      });
-      
-      // Send email notification
-      await sendEmailNotification(validatedData);
-      
-      res.status(201).json({ 
-        success: true, 
-        message: "Quote request submitted successfully. We'll get back to you within 24 hours!"
-      });
+      const quote = quoteRequestSchema.parse(req.body);
+
+      // Honeypot filled in: pretend it worked so the bot moves on.
+      if (quote.website) {
+        console.log("Discarded quote request that filled the honeypot field");
+        res.status(201).json({ success: true, message: successMessage });
+        return;
+      }
+
+      const bookingId = await createInquiry(quote);
+      console.log(`New quote request stored as inquiry #${bookingId}`);
+
+      // The inquiry is already saved, so a failed email shouldn't fail the request.
+      try {
+        await sendQuoteRequestNotification(bookingId, quote);
+      } catch (error) {
+        console.error(`Failed to send email for inquiry #${bookingId}:`, error);
+      }
+
+      res.status(201).json({ success: true, message: successMessage });
     } catch (error) {
-      console.error('Error processing quote request:', error);
       if (error instanceof z.ZodError) {
-        res.status(400).json({ 
-          success: false, 
-          error: "Invalid request data", 
-          details: error.errors 
+        res.status(400).json({
+          success: false,
+          error: "Invalid request data",
+          details: error.errors
         });
       } else {
-        res.status(500).json({ 
-          success: false, 
-          error: "Failed to submit quote request. Please try again." 
+        console.error('Error processing quote request:', error);
+        res.status(500).json({
+          success: false,
+          error: "Failed to submit quote request. Please try again."
         });
       }
     }
