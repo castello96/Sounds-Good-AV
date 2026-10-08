@@ -11,6 +11,10 @@ if (!connectionString) {
 
 export const pool = new pg.Pool({ connectionString });
 
+// Neon drops idle connections when it scales to zero. Without a listener, that
+// error on an idle client would crash the process; the pool replaces it anyway.
+pool.on("error", (error) => console.error("Idle database connection error:", error.message));
+
 export const db = drizzle(pool, { schema });
 
 export type Db = typeof db;

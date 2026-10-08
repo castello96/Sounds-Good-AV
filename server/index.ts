@@ -11,6 +11,12 @@ if (config.get("env") === "production") {
   app.set("trust proxy", 1);
 }
 
+// Keep the staff portal out of search results.
+app.use(["/admin", "/api/auth", "/api/admin"], (_req, res, next) => {
+  res.setHeader("X-Robots-Tag", "noindex, nofollow");
+  next();
+});
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 

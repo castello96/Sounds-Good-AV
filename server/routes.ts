@@ -6,6 +6,8 @@ import { z } from "zod";
 import config from "./config";
 import { createInquiry } from "./services/quoteRequests";
 import { sendQuoteRequestNotification } from "./services/email";
+import { setupAuth } from "./auth";
+import { registerAdminRoutes } from "./adminRoutes";
 
 const quoteRequestLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -69,6 +71,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     }
   });
+
+  setupAuth(app);
+  registerAdminRoutes(app);
 
   const httpServer = createServer(app);
 

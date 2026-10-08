@@ -7,12 +7,14 @@ import {
   foreignKey,
   index,
   integer,
+  json,
   jsonb,
   pgEnum,
   pgTable,
   text,
   timestamp,
   unique,
+  varchar,
 } from "drizzle-orm/pg-core";
 // Relative import: drizzle-kit loads this file without the tsconfig path aliases.
 import { DELIVERY_TYPES, EVENT_TYPES } from "../../shared/schema";
@@ -328,4 +330,16 @@ export const auditEvents = pgTable(
     createdAt: timestamptz("created_at").notNull().defaultNow(),
   },
   (t) => [index().on(t.entityType, t.entityId)],
+);
+
+// Login sessions, managed by connect-pg-simple. Its expected shape is fixed:
+// sid / sess / expire. Not audited.
+export const userSessions = pgTable(
+  "user_sessions",
+  {
+    sid: varchar("sid").primaryKey(),
+    sess: json("sess").notNull(),
+    expire: timestamp("expire", { precision: 6 }).notNull(),
+  },
+  (t) => [index().on(t.expire)],
 );
