@@ -22,6 +22,15 @@ const config = convict({
       env: 'HOST'
     }
   },
+  database: {
+    url: {
+      doc: 'Postgres connection string (Neon)',
+      format: String,
+      default: '',
+      env: 'DATABASE_URL',
+      sensitive: true
+    }
+  },
   email: {
     resendApiKey: {
       doc: 'Resend API key for sending emails',
