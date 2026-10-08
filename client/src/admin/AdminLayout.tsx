@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, LogOut, UserCog, Users } from "lucide-react";
+import { FolderTree, LayoutDashboard, LogOut, Package, UserCog, Users } from "lucide-react";
 import type { PublicUser } from "@shared/users";
 import ThemeToggle from "@/components/ThemeToggle";
 import {
@@ -22,6 +22,8 @@ import { useLogout } from "./useAuth";
 // Paths are relative to /admin. Add sections here as later phases land.
 const NAV_ITEMS = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/inventory", label: "Inventory", icon: Package },
+  { href: "/categories", label: "Categories", icon: FolderTree },
   { href: "/staff", label: "Staff", icon: Users },
 ];
 
@@ -44,7 +46,7 @@ export default function AdminLayout({ user, children }: { user: PublicUser; chil
               <SidebarMenu>
                 {NAV_ITEMS.map((item) => (
                   <SidebarMenuItem key={item.href}>
-                    <SidebarMenuButton asChild isActive={location === item.href}>
+                    <SidebarMenuButton asChild isActive={item.href === "/" ? location === "/" : location.startsWith(item.href)}>
                       <Link href={item.href} data-testid={`nav-${item.label.toLowerCase()}`}>
                         <item.icon />
                         <span>{item.label}</span>
