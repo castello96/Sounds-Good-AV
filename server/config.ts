@@ -31,6 +31,15 @@ const config = convict({
       sensitive: true
     }
   },
+  session: {
+    secret: {
+      doc: 'Secret used to sign login session cookies. Required in production.',
+      format: String,
+      default: '',
+      env: 'SESSION_SECRET',
+      sensitive: true
+    }
+  },
   email: {
     resendApiKey: {
       doc: 'Resend API key for sending emails',
