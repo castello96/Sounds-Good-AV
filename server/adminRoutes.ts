@@ -2,6 +2,7 @@ import { Router, type Express } from "express";
 import { createUserSchema, resetPasswordSchema, updateUserSchema } from "@shared/users";
 import { requireAuth } from "./auth";
 import { handle, idParam } from "./http";
+import { inventoryRouter } from "./inventoryRoutes";
 import { createUser, listUsers, resetPassword, updateUser } from "./services/users";
 
 /** Staff-only API. Everything under /api/admin requires a logged-in user. */
@@ -40,6 +41,8 @@ export function registerAdminRoutes(app: Express) {
       res.status(204).end();
     }),
   );
+
+  admin.use(inventoryRouter());
 
   // Unknown admin endpoints get JSON, not the SPA's index.html.
   admin.use((_req, res) => {
