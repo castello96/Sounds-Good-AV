@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { MoreHorizontal, Plus } from "lucide-react";
 import {
   createCategorySchema,
   departmentSchema,
+  suggestTagPrefix,
   type CategorySummary,
   type CreateCategoryInput,
   type DepartmentInput,
@@ -12,6 +13,7 @@ import {
 } from "@shared/inventory";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Form } from "@/components/ui/form";
@@ -84,7 +86,12 @@ export default function CategoriesPage() {
                 <ul className="divide-y">
                   {department.categories.map((category) => (
                     <li key={category.id} className="flex items-center justify-between py-1.5">
-                      <span>{category.name}</span>
+                      <span className="flex items-center gap-2">
+                        {category.name}
+                        <Badge variant="outline" className="font-mono text-xs" title="Asset tag prefix">
+                          {category.tagPrefix}
+                        </Badge>
+                      </span>
                       <span className="flex items-center gap-2 text-sm text-muted-foreground">
                         {category.equipmentCount} {category.equipmentCount === 1 ? "item" : "items"}
                         <RowMenu
@@ -205,8 +212,14 @@ function CategoryDialog({
 }) {
   const form = useForm<CreateCategoryInput>({
     resolver: zodResolver(createCategorySchema),
-    defaultValues: { departmentId, name: category?.name ?? "" },
+    defaultValues: { departmentId, name: category?.name ?? "", tagPrefix: category?.tagPrefix ?? "" },
   });
+
+  // Suggest a prefix from the name until someone types one.
+  const name = useWatch({ control: form.control, name: "name" });
+  useEffect(() => {
+    if (!category && !form.getFieldState("tagPrefix").isDirty) form.setValue("tagPrefix", suggestTagPrefix(name ?? ""));
+  }, [category, name, form]);
 
   const onSubmit = (values: CreateCategoryInput) =>
     (category
@@ -217,7 +230,9 @@ function CategoryDialog({
         invalidateInventory();
         onClose();
       })
-      .catch((error: Error) => form.setError("name", { message: error.message }));
+      .catch((error: Error) =>
+        form.setError(error.message.includes("prefix") ? "tagPrefix" : "name", { message: error.message }),
+      );
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -228,6 +243,16 @@ function CategoryDialog({
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <TextField control={form.control} name="name" label="Name" autoFocus />
+            <TextField
+              control={form.control}
+              name="tagPrefix"
+              label="Tag prefix"
+              description={
+                category
+                  ? "Starts new asset tags and SKUs in this category. Changing it doesn't rename existing tags."
+                  : "Starts asset tags and SKUs in this category, like MIC-001 and MIC-SM58. 2 to 6 letters or numbers."
+              }
+            />
             <SelectField
               control={form.control}
               name="departmentId"

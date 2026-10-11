@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { EquipmentDialog } from "../components/EquipmentDialog";
-import { equipmentName, useCatalog, useEquipmentList } from "../inventory";
+import { availableCount, equipmentName, useCatalog, useEquipmentList } from "../inventory";
 
 const ALL = "all";
 
@@ -73,7 +73,7 @@ export default function InventoryPage() {
               <TableHead>Equipment</TableHead>
               <TableHead>SKU</TableHead>
               <TableHead>Category</TableHead>
-              <TableHead className="text-right">Available units</TableHead>
+              <TableHead className="text-right">Available</TableHead>
               <TableHead className="text-right">Out of service</TableHead>
             </TableRow>
           </TableHeader>
@@ -105,9 +105,12 @@ export default function InventoryPage() {
                 <TableCell>
                   {e.departmentName} <span className="text-muted-foreground">/</span> {e.categoryName}
                 </TableCell>
-                <TableCell className="text-right">{e.unitCounts.active}</TableCell>
+                <TableCell className="text-right">
+                  {availableCount(e)}
+                  {e.tracking === "quantity" && <span className="text-muted-foreground"> (qty)</span>}
+                </TableCell>
                 <TableCell className="text-right text-muted-foreground">
-                  {e.unitCounts.maintenance + e.unitCounts.lost || ""}
+                  {e.tracking === "units" ? e.unitCounts.maintenance + e.unitCounts.lost || "" : ""}
                 </TableCell>
               </TableRow>
             ))}

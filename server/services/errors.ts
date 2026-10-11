@@ -12,15 +12,25 @@ export class ServiceError extends Error {
   }
 }
 
+interface PgError {
+  code: string;
+  constraint?: string;
+}
+
 // Drizzle wraps driver errors; the pg error (with its code) is on .cause.
-function hasPgCode(error: unknown, code: string): boolean {
+function findPgError(error: unknown, code: string): PgError | undefined {
   let e: unknown = error;
   while (e && typeof e === "object") {
-    if ((e as { code?: unknown }).code === code) return true;
+    if ((e as { code?: unknown }).code === code) return e as PgError;
     e = (e as { cause?: unknown }).cause;
   }
-  return false;
+  return undefined;
 }
+
+const hasPgCode = (error: unknown, code: string) => findPgError(error, code) !== undefined;
+
+/** The name of the unique constraint a write broke, if it broke one. */
+export const violatedUniqueConstraint = (error: unknown) => findPgError(error, "23505")?.constraint;
 
 export const isUniqueViolation = (error: unknown) => hasPgCode(error, "23505");
 

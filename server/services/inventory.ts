@@ -1,6 +1,7 @@
-import { asc, count, eq } from "drizzle-orm";
+import { asc, count, eq, sql } from "drizzle-orm";
 import type { z } from "zod";
 import {
+  formatAssetTag,
   INVENTORY_STATUSES,
   sequentialAssetTags,
   type CreateCategoryInput,
@@ -18,7 +19,7 @@ import {
 } from "@shared/inventory";
 import { db, withActor } from "../db";
 import { categories, departments, equipment, inventory } from "../db/schema";
-import { isForeignKeyViolation, isUniqueViolation, ServiceError } from "./errors";
+import { isForeignKeyViolation, isUniqueViolation, ServiceError, violatedUniqueConstraint } from "./errors";
 
 // Services take parsed input, after the schemas' trimming and uppercasing.
 type EquipmentData = z.output<typeof equipmentSchema>;
@@ -33,12 +34,15 @@ type UpdateUnitData = z.output<typeof updateUnitSchema>;
  */
 async function write<T>(
   fn: () => Promise<T>,
-  messages: { unique?: string; foreignKey?: string },
+  messages: { unique?: string | ((constraint: string | undefined) => string); foreignKey?: string },
 ): Promise<T> {
   try {
     return await fn();
   } catch (error) {
-    if (messages.unique && isUniqueViolation(error)) throw new ServiceError(409, messages.unique);
+    if (messages.unique && isUniqueViolation(error)) {
+      const { unique } = messages;
+      throw new ServiceError(409, typeof unique === "string" ? unique : unique(violatedUniqueConstraint(error)));
+    }
     if (messages.foreignKey && isForeignKeyViolation(error)) throw new ServiceError(409, messages.foreignKey);
     throw error;
   }
@@ -69,6 +73,7 @@ export async function getCatalog(): Promise<DepartmentWithCategories[]> {
         id: c.id,
         departmentId: c.departmentId,
         name: c.name,
+        tagPrefix: c.tagPrefix,
         equipmentCount: countByCategory.get(c.id) ?? 0,
       })),
   }));
@@ -110,16 +115,26 @@ export async function deleteDepartment(actorId: number, id: number) {
   );
 }
 
-const DUPLICATE_CATEGORY = "That department already has a category with this name";
+const duplicateCategory = (constraint: string | undefined) =>
+  constraint === "categories_tag_prefix_unique"
+    ? "Another category already uses that tag prefix"
+    : "That department already has a category with this name";
+
+const toCategory = (row: typeof categories.$inferSelect) => ({
+  id: row.id,
+  departmentId: row.departmentId,
+  name: row.name,
+  tagPrefix: row.tagPrefix,
+});
 
 export async function createCategory(actorId: number, input: CreateCategoryInput) {
   return write(
     () =>
       withActor(actorId, async (tx) => {
         const [row] = await tx.insert(categories).values(input).returning();
-        return { id: row.id, departmentId: row.departmentId, name: row.name };
+        return toCategory(row);
       }),
-    { unique: DUPLICATE_CATEGORY, foreignKey: "That department no longer exists" },
+    { unique: duplicateCategory, foreignKey: "That department no longer exists" },
   );
 }
 
@@ -129,9 +144,9 @@ export async function updateCategory(actorId: number, id: number, input: UpdateC
       withActor(actorId, async (tx) => {
         const [row] = await tx.update(categories).set(input).where(eq(categories.id, id)).returning();
         notFound(row, "Category");
-        return { id: row.id, departmentId: row.departmentId, name: row.name };
+        return toCategory(row);
       }),
-    { unique: DUPLICATE_CATEGORY, foreignKey: "That department no longer exists" },
+    { unique: duplicateCategory, foreignKey: "That department no longer exists" },
   );
 }
 
@@ -159,9 +174,12 @@ const summaryColumns = {
   categoryName: categories.name,
   departmentId: departments.id,
   departmentName: departments.name,
+  tagPrefix: categories.tagPrefix,
   sku: equipment.sku,
   brand: equipment.brand,
   model: equipment.model,
+  tracking: equipment.tracking,
+  quantityOwned: equipment.quantityOwned,
 };
 
 function summaryQuery() {
@@ -203,17 +221,37 @@ export async function getEquipment(id: number): Promise<EquipmentDetail> {
     db.select().from(inventory).where(eq(inventory.equipmentId, id)).orderBy(asc(inventory.assetTag)),
   ]);
   notFound(row, "Equipment");
-  return { ...row, unitCounts: counts.get(id) ?? emptyCounts(), units: units.map(toUnit) };
+  return {
+    ...row,
+    unitCounts: counts.get(id) ?? emptyCounts(),
+    units: units.map(toUnit),
+    nextAssetTag: row.tracking === "units" ? await nextAssetTag(row.tagPrefix) : null,
+  };
+}
+
+/**
+ * One past the highest numbered tag with this prefix, across all units. Gaps
+ * left by deleted units aren't refilled, so a tag is never reused while its
+ * old sticker might still be around.
+ */
+export async function nextAssetTag(prefix: string): Promise<string> {
+  // Prefixes are letters and digits only, so they're safe inside the pattern.
+  const [{ highest }] = await db
+    .select({ highest: sql<number | null>`max(substring(${inventory.assetTag} from ${prefix.length + 2}::int)::int)` })
+    .from(inventory)
+    .where(sql`${inventory.assetTag} ~ ${`^${prefix}-[0-9]{1,9}$`}`);
+  return formatAssetTag(prefix, (highest ?? 0) + 1);
 }
 
 const DUPLICATE_SKU = "Another piece of equipment already uses that SKU";
 const MISSING_CATEGORY = "That category no longer exists";
 
 export async function createEquipment(actorId: number, input: EquipmentData): Promise<EquipmentDetail> {
+  const values = { ...input, quantityOwned: input.tracking === "quantity" ? input.quantityOwned : 0 };
   const id = await write(
     () =>
       withActor(actorId, async (tx) => {
-        const [row] = await tx.insert(equipment).values(input).returning({ id: equipment.id });
+        const [row] = await tx.insert(equipment).values(values).returning({ id: equipment.id });
         return row.id;
       }),
     { unique: DUPLICATE_SKU, foreignKey: MISSING_CATEGORY },
@@ -225,8 +263,23 @@ export async function updateEquipment(actorId: number, id: number, input: Update
   await write(
     () =>
       withActor(actorId, async (tx) => {
-        const [row] = await tx.update(equipment).set(input).where(eq(equipment.id, id)).returning({ id: equipment.id });
-        notFound(row, "Equipment");
+        const [current] = await tx
+          .select({ tracking: equipment.tracking })
+          .from(equipment)
+          .where(eq(equipment.id, id))
+          .for("update");
+        notFound(current, "Equipment");
+
+        const tracking = input.tracking ?? current.tracking;
+        if (tracking === "quantity" && current.tracking === "units") {
+          const [{ n }] = await tx.select({ n: count() }).from(inventory).where(eq(inventory.equipmentId, id));
+          if (n > 0) {
+            throw new ServiceError(409, "This equipment has units with asset tags. Delete them before switching to quantity tracking.");
+          }
+        }
+        // Equipment tracked by units counts its units, so it has no quantity of its own.
+        const values = tracking === "units" ? { ...input, quantityOwned: 0 } : input;
+        await tx.update(equipment).set(values).where(eq(equipment.id, id));
       }),
     { unique: DUPLICATE_SKU, foreignKey: MISSING_CATEGORY },
   );
@@ -268,6 +321,15 @@ export async function createUnits(actorId: number, equipmentId: number, input: C
   return write(
     () =>
       withActor(actorId, async (tx) => {
+        const [item] = await tx
+          .select({ tracking: equipment.tracking })
+          .from(equipment)
+          .where(eq(equipment.id, equipmentId));
+        notFound(item, "Equipment");
+        if (item.tracking === "quantity") {
+          throw new ServiceError(409, "This equipment is tracked by quantity, so it doesn't have units. Edit its quantity instead.");
+        }
+
         const rows = await tx
           .insert(inventory)
           .values(tags.map((tag) => ({ ...fields, equipmentId, assetTag: tag })))
