@@ -7,7 +7,7 @@ export default function DashboardPage() {
     <div className="space-y-2">
       <h1 className="text-2xl font-semibold">Welcome back, {user?.firstName}</h1>
       <p className="text-muted-foreground">
-        Inquiries and bookings will show up here as those sections are added. Use Inventory to build the equipment catalog.
+        New website inquiries land in Bookings. Use Inventory to manage the equipment catalog.
       </p>
     </div>
   );

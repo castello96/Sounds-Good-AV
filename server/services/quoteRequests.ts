@@ -1,18 +1,12 @@
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { DELIVERY_UNSURE, type QuoteRequest } from "@shared/schema";
 import { withActor } from "../db";
 import { addresses, bookings, customers } from "../db/schema";
-
-// The business operates in Long Island / NYC. Times typed into the public form
-// are local wall-clock times there.
-export const BUSINESS_TIME_ZONE = "America/New_York";
+import { localToUtc } from "./time";
 
 export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
-
-const localToUtc = (date: string, time: string) =>
-  sql`(${`${date} ${time}`}::timestamp AT TIME ZONE ${BUSINESS_TIME_ZONE})`;
 
 /**
  * Stores a quote request from the public site as an inquiry booking.
@@ -77,8 +71,8 @@ export async function createInquiry(input: QuoteRequest): Promise<number> {
         eventType: input.eventType,
         deliveryType,
         requestDetails: input.requestDetails,
-        eventStartAt: localToUtc(input.startDate, input.startTime),
-        eventEndAt: localToUtc(input.endDate, input.endTime),
+        eventStartAt: localToUtc(`${input.startDate}T${input.startTime}`),
+        eventEndAt: localToUtc(`${input.endDate}T${input.endTime}`),
       })
       .returning({ id: bookings.id });
 

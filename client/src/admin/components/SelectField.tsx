@@ -20,7 +20,8 @@ export function SelectField<T extends FieldValues>({
   groups,
   numeric = false,
 }: {
-  control: Control<T>;
+  // Any transformed type, so forms whose schema reshapes values (like null for "unsure") fit.
+  control: Control<T, any, any>;
   name: FieldPath<T>;
   label: string;
   description?: string;

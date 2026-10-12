@@ -36,3 +36,28 @@ export const isUniqueViolation = (error: unknown) => hasPgCode(error, "23505");
 
 // Raised when deleting a row that other rows still point at.
 export const isForeignKeyViolation = (error: unknown) => hasPgCode(error, "23503");
+
+/**
+ * Runs a write and turns constraint violations into messages staff can act on.
+ * A foreign key violation means a referenced row is missing (on insert/update)
+ * or the row is still referenced (on delete), so the caller words it.
+ */
+export async function write<T>(
+  fn: () => Promise<T>,
+  messages: { unique?: string | ((constraint: string | undefined) => string); foreignKey?: string },
+): Promise<T> {
+  try {
+    return await fn();
+  } catch (error) {
+    if (messages.unique && isUniqueViolation(error)) {
+      const { unique } = messages;
+      throw new ServiceError(409, typeof unique === "string" ? unique : unique(violatedUniqueConstraint(error)));
+    }
+    if (messages.foreignKey && isForeignKeyViolation(error)) throw new ServiceError(409, messages.foreignKey);
+    throw error;
+  }
+}
+
+export function notFound(row: unknown, what: string): asserts row {
+  if (!row) throw new ServiceError(404, `${what} not found`);
+}

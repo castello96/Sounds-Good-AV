@@ -19,38 +19,13 @@ import {
 } from "@shared/inventory";
 import { db, withActor } from "../db";
 import { categories, departments, equipment, inventory } from "../db/schema";
-import { isForeignKeyViolation, isUniqueViolation, ServiceError, violatedUniqueConstraint } from "./errors";
+import { notFound, ServiceError, write } from "./errors";
 
 // Services take parsed input, after the schemas' trimming and uppercasing.
 type EquipmentData = z.output<typeof equipmentSchema>;
 type UpdateEquipmentData = z.output<typeof updateEquipmentSchema>;
 type CreateUnitsData = z.output<typeof createUnitsSchema>;
 type UpdateUnitData = z.output<typeof updateUnitSchema>;
-
-/**
- * Runs a write and turns constraint violations into messages staff can act on.
- * A foreign key violation means a referenced row is missing (on insert/update)
- * or the row is still referenced (on delete), so the caller words it.
- */
-async function write<T>(
-  fn: () => Promise<T>,
-  messages: { unique?: string | ((constraint: string | undefined) => string); foreignKey?: string },
-): Promise<T> {
-  try {
-    return await fn();
-  } catch (error) {
-    if (messages.unique && isUniqueViolation(error)) {
-      const { unique } = messages;
-      throw new ServiceError(409, typeof unique === "string" ? unique : unique(violatedUniqueConstraint(error)));
-    }
-    if (messages.foreignKey && isForeignKeyViolation(error)) throw new ServiceError(409, messages.foreignKey);
-    throw error;
-  }
-}
-
-function notFound(row: unknown, what: string): asserts row {
-  if (!row) throw new ServiceError(404, `${what} not found`);
-}
 
 // ---------------------------------------------------------------------------
 // Departments and categories
