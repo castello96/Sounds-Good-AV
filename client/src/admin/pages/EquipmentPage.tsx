@@ -6,6 +6,7 @@ import { ArrowLeft, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 import type { z } from "zod";
 import {
   createUnitsSchema,
+  EQUIPMENT_TRACKING_LABELS,
   INVENTORY_STATUS_LABELS,
   INVENTORY_STATUSES,
   MAX_BULK_UNITS,
@@ -74,6 +75,7 @@ export default function EquipmentPage({ params }: { params: { id: string } }) {
           <p className="text-muted-foreground">
             <span className="font-mono">{equipment.sku}</span> · {equipment.departmentName} / {equipment.categoryName}
           </p>
+          <p className="text-sm text-muted-foreground">Tracking: {EQUIPMENT_TRACKING_LABELS[equipment.tracking]}</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => setDialog({ kind: "edit" })}>
@@ -85,68 +87,82 @@ export default function EquipmentPage({ params }: { params: { id: string } }) {
         </div>
       </div>
 
-      <div className="flex items-center justify-between gap-4">
-        <h2 className="text-lg font-semibold">
-          Units <span className="text-muted-foreground font-normal">({equipment.units.length})</span>
-        </h2>
-        <Button onClick={() => setDialog({ kind: "addUnits" })} data-testid="button-add-units">
-          <Plus /> Add units
-        </Button>
-      </div>
+      {equipment.tracking === "quantity" ? (
+        <div className="space-y-1 rounded-md border p-4">
+          <h2 className="text-lg font-semibold">
+            Quantity owned: <span data-testid="text-quantity-owned">{equipment.quantityOwned}</span>
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            This equipment is counted rather than tracked unit by unit, so there are no asset tags. Use Edit to change
+            the quantity when you buy more or some go missing.
+          </p>
+        </div>
+      ) : (
+        <>
+          <div className="flex items-center justify-between gap-4">
+            <h2 className="text-lg font-semibold">
+              Units <span className="text-muted-foreground font-normal">({equipment.units.length})</span>
+            </h2>
+            <Button onClick={() => setDialog({ kind: "addUnits" })} data-testid="button-add-units">
+              <Plus /> Add units
+            </Button>
+          </div>
 
-      <div className="rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Asset tag</TableHead>
-              <TableHead>Serial number</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Condition</TableHead>
-              <TableHead>Purchased</TableHead>
-              <TableHead>Notes</TableHead>
-              <TableHead className="w-12" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {equipment.units.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={7} className="text-muted-foreground">
-                  No units yet. Add one for each physical item you own.
-                </TableCell>
-              </TableRow>
-            )}
-            {equipment.units.map((unit) => (
-              <TableRow key={unit.id} data-testid={`row-unit-${unit.id}`}>
-                <TableCell className="font-mono text-sm">{unit.assetTag}</TableCell>
-                <TableCell>{unit.serialNumber}</TableCell>
-                <TableCell>
-                  <Badge variant={STATUS_BADGE[unit.status]}>{INVENTORY_STATUS_LABELS[unit.status]}</Badge>
-                </TableCell>
-                <TableCell>{unit.condition}</TableCell>
-                <TableCell>{unit.purchasedAt}</TableCell>
-                <TableCell className="max-w-64 truncate" title={unit.notes ?? undefined}>
-                  {unit.notes}
-                </TableCell>
-                <TableCell>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`Actions for ${unit.assetTag}`}>
-                        <MoreHorizontal />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onSelect={() => setDialog({ kind: "editUnit", unit })}>Edit</DropdownMenuItem>
-                      <DropdownMenuItem className="text-destructive" onSelect={() => setDialog({ kind: "deleteUnit", unit })}>
-                        Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Asset tag</TableHead>
+                  <TableHead>Serial number</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Condition</TableHead>
+                  <TableHead>Purchased</TableHead>
+                  <TableHead>Notes</TableHead>
+                  <TableHead className="w-12" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {equipment.units.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-muted-foreground">
+                      No units yet. Add one for each physical item you own.
+                    </TableCell>
+                  </TableRow>
+                )}
+                {equipment.units.map((unit) => (
+                  <TableRow key={unit.id} data-testid={`row-unit-${unit.id}`}>
+                    <TableCell className="font-mono text-sm">{unit.assetTag}</TableCell>
+                    <TableCell>{unit.serialNumber}</TableCell>
+                    <TableCell>
+                      <Badge variant={STATUS_BADGE[unit.status]}>{INVENTORY_STATUS_LABELS[unit.status]}</Badge>
+                    </TableCell>
+                    <TableCell>{unit.condition}</TableCell>
+                    <TableCell>{unit.purchasedAt}</TableCell>
+                    <TableCell className="max-w-64 truncate" title={unit.notes ?? undefined}>
+                      {unit.notes}
+                    </TableCell>
+                    <TableCell>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`Actions for ${unit.assetTag}`}>
+                            <MoreHorizontal />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onSelect={() => setDialog({ kind: "editUnit", unit })}>Edit</DropdownMenuItem>
+                          <DropdownMenuItem className="text-destructive" onSelect={() => setDialog({ kind: "deleteUnit", unit })}>
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </>
+      )}
 
       {dialog?.kind === "edit" && <EquipmentDialog equipment={equipment} onClose={close} />}
       {dialog?.kind === "delete" && (
@@ -188,7 +204,7 @@ function AddUnitsDialog({ equipment, onClose }: { equipment: EquipmentDetail; on
   const form = useForm<CreateUnitsForm, unknown, CreateUnitsValues>({
     resolver: zodResolver(createUnitsSchema),
     defaultValues: {
-      assetTag: "",
+      assetTag: equipment.nextAssetTag ?? "",
       quantity: 1,
       status: "active",
       serialNumber: "",
@@ -215,8 +231,8 @@ function AddUnitsDialog({ equipment, onClose }: { equipment: EquipmentDetail; on
         <DialogHeader>
           <DialogTitle>Add units</DialogTitle>
           <DialogDescription>
-            Each unit is one physical {equipmentName(equipment)} with its own asset tag. To add several at once, end
-            the tag with a number and it counts up.
+            Each unit is one physical {equipmentName(equipment)} with its own asset tag. The next free tag in this
+            category is filled in. To add several at once, set a quantity and the number counts up.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>

@@ -30,6 +30,10 @@ export const inventoryStatus = pgEnum("inventory_status", [
   "lost",
 ]);
 
+// "units": each physical item has an asset tag. "quantity": only a count is
+// kept, for cheap interchangeable gear like cables.
+export const equipmentTracking = pgEnum("equipment_tracking", ["units", "quantity"]);
+
 export const bookingStatus = pgEnum("booking_status", [
   "inquiry",
   "quoted",
@@ -88,6 +92,8 @@ export const categories = pgTable(
       .notNull()
       .references(() => departments.id),
     name: text("name").notNull(),
+    // Starts this category's asset tags, e.g. MIC for MIC-001.
+    tagPrefix: text("tag_prefix").notNull().unique(),
     ...timestamps,
   },
   (t) => [unique().on(t.departmentId, t.name)],
@@ -104,9 +110,16 @@ export const equipment = pgTable(
     sku: text("sku").notNull().unique(),
     brand: text("brand").notNull(),
     model: text("model").notNull(),
+    tracking: equipmentTracking("tracking").notNull().default("units"),
+    // How many are owned when tracked by quantity. Always 0 when tracked by units.
+    quantityOwned: integer("quantity_owned").notNull().default(0),
     ...timestamps,
   },
-  (t) => [index().on(t.categoryId)],
+  (t) => [
+    index().on(t.categoryId),
+    check("equipment_quantity_owned_non_negative", sql`${t.quantityOwned} >= 0`),
+    check("equipment_quantity_only_when_tracked", sql`${t.tracking} = 'quantity' OR ${t.quantityOwned} = 0`),
+  ],
 );
 
 // One physical unit of a piece of equipment.

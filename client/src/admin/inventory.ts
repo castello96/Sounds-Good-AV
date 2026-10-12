@@ -48,6 +48,10 @@ export function categoryOptions(catalog: DepartmentWithCategories[] | undefined)
     }));
 }
 
+/** Units in service, or the owned count for equipment tracked by quantity. */
+export const availableCount = (e: EquipmentSummary) =>
+  e.tracking === "quantity" ? e.quantityOwned : e.unitCounts.active;
+
 export const equipmentName = (e: { brand: string; model: string }) => `${e.brand} ${e.model}`;
 
 export const STATUS_BADGE: Record<InventoryStatus, "default" | "secondary" | "outline" | "destructive"> = {

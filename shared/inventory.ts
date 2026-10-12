@@ -10,6 +10,15 @@ export const INVENTORY_STATUS_LABELS: Record<InventoryStatus, string> = {
   lost: "Lost",
 };
 
+// How a piece of equipment is counted. See the equipment table in the schema.
+export const EQUIPMENT_TRACKING = ["units", "quantity"] as const;
+export type EquipmentTracking = (typeof EQUIPMENT_TRACKING)[number];
+
+export const EQUIPMENT_TRACKING_LABELS: Record<EquipmentTracking, string> = {
+  units: "Individual units with asset tags",
+  quantity: "Quantity only, no asset tags",
+};
+
 // The most units that can be added in one go.
 export const MAX_BULK_UNITS = 100;
 
@@ -42,6 +51,7 @@ export interface CategorySummary {
   id: number;
   departmentId: number;
   name: string;
+  tagPrefix: string;
   equipmentCount: number;
 }
 
@@ -59,9 +69,13 @@ export interface EquipmentSummary {
   categoryName: string;
   departmentId: number;
   departmentName: string;
+  tagPrefix: string;
   sku: string;
   brand: string;
   model: string;
+  tracking: EquipmentTracking;
+  // Always 0 for equipment tracked by units; count its units instead.
+  quantityOwned: number;
   unitCounts: UnitCounts;
 }
 
@@ -78,6 +92,8 @@ export interface InventoryUnit {
 
 export interface EquipmentDetail extends EquipmentSummary {
   units: InventoryUnit[];
+  // The next free asset tag in this category, e.g. MIC-007. Null when tracked by quantity.
+  nextAssetTag: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -87,7 +103,13 @@ export interface EquipmentDetail extends EquipmentSummary {
 export const departmentSchema = z.object({ name: required("Name") });
 export type DepartmentInput = z.infer<typeof departmentSchema>;
 
-export const createCategorySchema = z.object({ departmentId: id, name: required("Name") });
+const tagPrefix = z
+  .string()
+  .trim()
+  .transform((v) => v.toUpperCase())
+  .pipe(z.string().regex(/^[A-Z][A-Z0-9]{1,5}$/, "Use 2 to 6 letters or numbers, starting with a letter"));
+
+export const createCategorySchema = z.object({ departmentId: id, name: required("Name"), tagPrefix });
 export type CreateCategoryInput = z.infer<typeof createCategorySchema>;
 
 export const updateCategorySchema = createCategorySchema.partial();
@@ -99,6 +121,13 @@ export const equipmentSchema = z.object({
   sku: required("SKU", 50).transform((v) => v.toUpperCase()),
   brand: required("Brand"),
   model: required("Model"),
+  tracking: z.enum(EQUIPMENT_TRACKING).default("units"),
+  quantityOwned: z.coerce
+    .number()
+    .int("Quantity must be a whole number")
+    .min(0, "Quantity can't be negative")
+    .max(100_000, "That's a lot. Use a quantity under 100,000")
+    .default(0),
 });
 export type EquipmentInput = z.input<typeof equipmentSchema>;
 
@@ -161,3 +190,39 @@ export function sequentialAssetTags(start: string, count: number): string[] {
   const first = Number(digits);
   return Array.from({ length: count }, (_, i) => prefix + String(first + i).padStart(digits.length, "0"));
 }
+
+/** Uppercases text into a code of letters, digits and dots: "K12.2 Pro" gives "K12.2-PRO". */
+export function toCode(text: string): string {
+  return text
+    .toUpperCase()
+    .replace(/[^A-Z0-9.]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/** A starting tag prefix for a new category: "Microphones" gives "MIC". */
+export function suggestTagPrefix(categoryName: string): string {
+  return categoryName.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 3);
+}
+
+/**
+ * The SKU convention: category prefix and model, like MIC-SM58. If that's
+ * taken, a short brand code goes in the middle (SPK-QSC-K12), and failing that
+ * a number on the end.
+ */
+export function suggestSku(prefix: string, brand: string, model: string, taken: ReadonlySet<string>): string {
+  const modelCode = toCode(model);
+  if (!modelCode) return "";
+  const base = `${prefix}-${modelCode}`;
+  if (!taken.has(base)) return base;
+  const brandCode = toCode(brand).replace(/[^A-Z0-9]/g, "").slice(0, 3);
+  const withBrand = brandCode ? `${prefix}-${brandCode}-${modelCode}` : base;
+  if (!taken.has(withBrand)) return withBrand;
+  for (let n = 2; ; n++) {
+    if (!taken.has(`${withBrand}-${n}`)) return `${withBrand}-${n}`;
+  }
+}
+
+// New asset tags are the category prefix and a number padded to this many digits.
+export const ASSET_TAG_DIGITS = 3;
+
+export const formatAssetTag = (prefix: string, n: number) => `${prefix}-${String(n).padStart(ASSET_TAG_DIGITS, "0")}`;

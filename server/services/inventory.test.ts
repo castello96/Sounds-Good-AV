@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { createUnitsSchema, equipmentSchema, sequentialAssetTags } from "@shared/inventory";
+import { createCategorySchema, createUnitsSchema, equipmentSchema, sequentialAssetTags, suggestSku } from "@shared/inventory";
 import { resetDatabase } from "../../test/db";
 import { db } from "../db";
 import { auditEvents, bookingItems, bookingItemUnits, bookings, customers } from "../db/schema";
@@ -21,7 +21,7 @@ beforeEach(async () => {
 
 async function seedEquipment() {
   const department = await inventory.createDepartment(actorId, { name: "Audio" });
-  const category = await inventory.createCategory(actorId, { departmentId: department.id, name: "Microphones" });
+  const category = await inventory.createCategory(actorId, { departmentId: department.id, name: "Microphones", tagPrefix: "MIC" });
   const sm58 = await inventory.createEquipment(
     actorId,
     equipmentSchema.parse({ categoryId: category.id, sku: "sm58", brand: "Shure", model: "SM58" }),
@@ -43,10 +43,28 @@ describe("sequentialAssetTags", () => {
   });
 });
 
+describe("codes", () => {
+  it("validates and uppercases tag prefixes", () => {
+    expect(createCategorySchema.parse({ departmentId: 1, name: "Mics", tagPrefix: " mic " }).tagPrefix).toBe("MIC");
+    for (const bad of ["M", "1MC", "MIC-", "TOOLONG"]) {
+      expect(createCategorySchema.safeParse({ departmentId: 1, name: "Mics", tagPrefix: bad }).success).toBe(false);
+    }
+  });
+
+  it("suggests SKUs from the prefix and model, adding the brand on a clash", () => {
+    const none = new Set<string>();
+    expect(suggestSku("SPK", "QSC", "K12.2", none)).toBe("SPK-K12.2");
+    expect(suggestSku("UPL", "Chauvet DJ", "SlimPAR Q12 BT", none)).toBe("UPL-SLIMPAR-Q12-BT");
+    expect(suggestSku("SPK", "Electro-Voice", "K12", new Set(["SPK-K12"]))).toBe("SPK-ELE-K12");
+    expect(suggestSku("SPK", "QSC", "K12", new Set(["SPK-K12", "SPK-QSC-K12"]))).toBe("SPK-QSC-K12-2");
+    expect(suggestSku("SPK", "QSC", "  ", none)).toBe("");
+  });
+});
+
 describe("catalog", () => {
   it("groups categories under departments with equipment counts", async () => {
     const { category } = await seedEquipment();
-    await inventory.createCategory(actorId, { departmentId: category.departmentId, name: "Speakers" });
+    await inventory.createCategory(actorId, { departmentId: category.departmentId, name: "Speakers", tagPrefix: "SPK" });
     await inventory.createDepartment(actorId, { name: "Lighting" });
 
     const catalog = await inventory.getCatalog();
@@ -61,8 +79,11 @@ describe("catalog", () => {
     const { department } = await seedEquipment();
     await expect(inventory.createDepartment(actorId, { name: "Audio" })).rejects.toMatchObject({ status: 409 });
     await expect(
-      inventory.createCategory(actorId, { departmentId: department.id, name: "Microphones" }),
-    ).rejects.toMatchObject({ status: 409 });
+      inventory.createCategory(actorId, { departmentId: department.id, name: "Microphones", tagPrefix: "MC" }),
+    ).rejects.toMatchObject({ status: 409, message: expect.stringContaining("name") });
+    await expect(
+      inventory.createCategory(actorId, { departmentId: department.id, name: "Mics", tagPrefix: "MIC" }),
+    ).rejects.toMatchObject({ status: 409, message: expect.stringContaining("prefix") });
   });
 
   it("won't delete a department or category that's in use", async () => {
@@ -107,6 +128,57 @@ describe("equipment", () => {
     const { sm58 } = await seedEquipment();
     await inventory.createUnits(actorId, sm58.id, units({ assetTag: "MIC-001", quantity: 1 }));
     await expect(inventory.deleteEquipment(actorId, sm58.id)).rejects.toMatchObject({ status: 409 });
+  });
+
+  it("suggests the next asset tag across the whole category", async () => {
+    const { category, sm58 } = await seedEquipment();
+    expect((await inventory.getEquipment(sm58.id)).nextAssetTag).toBe("MIC-001");
+
+    await inventory.createUnits(actorId, sm58.id, units({ assetTag: "MIC-001", quantity: 6 }));
+    // Odd tags that don't follow the pattern are ignored.
+    await inventory.createUnits(actorId, sm58.id, units({ assetTag: "MIC-OLD", quantity: 1 }));
+    const beta = await inventory.createEquipment(
+      actorId,
+      equipmentSchema.parse({ categoryId: category.id, sku: "MIC-BETA58A", brand: "Shure", model: "Beta 58A" }),
+    );
+    expect(beta.nextAssetTag).toBe("MIC-007");
+  });
+
+  it("tracks cables and accessories by quantity", async () => {
+    const { category, sm58 } = await seedEquipment();
+    const cable = await inventory.createEquipment(
+      actorId,
+      equipmentSchema.parse({
+        categoryId: category.id,
+        sku: "CBL-XLR-25",
+        brand: "Generic",
+        model: "XLR 25ft",
+        tracking: "quantity",
+        quantityOwned: "60",
+      }),
+    );
+    expect(cable).toMatchObject({ tracking: "quantity", quantityOwned: 60, nextAssetTag: null, units: [] });
+    await expect(
+      inventory.createUnits(actorId, cable.id, units({ assetTag: "CBL-001", quantity: 1 })),
+    ).rejects.toMatchObject({ status: 409 });
+
+    // A quantity on unit-tracked equipment is ignored rather than stored.
+    const plain = await inventory.createEquipment(
+      actorId,
+      equipmentSchema.parse({ categoryId: category.id, sku: "X", brand: "B", model: "M", quantityOwned: 5 }),
+    );
+    expect(plain.quantityOwned).toBe(0);
+
+    // Switching to units drops the count; switching back is fine with no units.
+    expect((await inventory.updateEquipment(actorId, cable.id, { tracking: "units" })).quantityOwned).toBe(0);
+    await inventory.updateEquipment(actorId, cable.id, { tracking: "quantity", quantityOwned: 40 });
+    expect((await inventory.getEquipment(cable.id)).quantityOwned).toBe(40);
+
+    // Equipment with tagged units can't switch to quantity.
+    await inventory.createUnits(actorId, sm58.id, units({ assetTag: "MIC-001", quantity: 1 }));
+    await expect(inventory.updateEquipment(actorId, sm58.id, { tracking: "quantity" })).rejects.toMatchObject({
+      status: 409,
+    });
   });
 
   it("answers 404 for missing equipment", async () => {
