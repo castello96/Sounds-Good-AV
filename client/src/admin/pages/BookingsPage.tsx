@@ -1,0 +1,124 @@
+import { useState } from "react";
+import { Link, useLocation } from "wouter";
+import { Plus } from "lucide-react";
+import { BOOKING_STATUS_LABELS, BOOKING_STATUSES, formatMoney, type BookingStatus } from "@shared/bookings";
+import { EVENT_TYPE_LABELS } from "@shared/schema";
+import { formatDateTime, formatRange } from "@shared/time";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { customerName, STATUS_BADGE, useBookingCounts, useBookings } from "../bookings";
+import { NewBookingDialog } from "../components/NewBookingDialog";
+
+const ALL = "all";
+type Filter = BookingStatus | typeof ALL;
+
+const TAB_LABELS: Record<Filter, string> = {
+  inquiry: "Inquiries",
+  quoted: "Quoted",
+  confirmed: "Confirmed",
+  completed: "Completed",
+  cancelled: "Cancelled",
+  all: "All",
+};
+
+export default function BookingsPage() {
+  const [filter, setFilter] = useState<Filter>(initialFilter);
+  const { data: bookings, isLoading } = useBookings(filter === ALL ? undefined : filter);
+  const { data: counts } = useBookingCounts();
+  const [, navigate] = useLocation();
+  const [adding, setAdding] = useState(false);
+
+  const changeFilter = (next: string) => {
+    setFilter(next as Filter);
+    // Keep the tab in the URL so going back to the list lands on it again.
+    window.history.replaceState(null, "", next === "inquiry" ? location.pathname : `?status=${next}`);
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold">Bookings</h1>
+          <p className="text-muted-foreground">Website inquiries come in here. Quote them, then confirm to hold the gear.</p>
+        </div>
+        <Button onClick={() => setAdding(true)} data-testid="button-new-booking">
+          <Plus /> New booking
+        </Button>
+      </div>
+
+      <Tabs value={filter} onValueChange={changeFilter}>
+        <TabsList className="h-auto flex-wrap">
+          {[...BOOKING_STATUSES, ALL].map((s) => (
+            <TabsTrigger key={s} value={s} data-testid={`tab-${s}`}>
+              {TAB_LABELS[s as Filter]}
+              {s !== ALL && counts && counts[s as BookingStatus] > 0 && (
+                <span className="ml-1.5 text-xs text-muted-foreground">{counts[s as BookingStatus]}</span>
+              )}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
+
+      <div className="rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Customer</TableHead>
+              <TableHead>Event</TableHead>
+              <TableHead>When</TableHead>
+              <TableHead className="text-right">Items</TableHead>
+              <TableHead className="text-right">Total</TableHead>
+              {filter === ALL && <TableHead>Status</TableHead>}
+              {filter === "inquiry" && <TableHead>Received</TableHead>}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {(isLoading || bookings?.length === 0) && (
+              <TableRow>
+                <TableCell colSpan={6} className="text-muted-foreground">
+                  {isLoading ? "Loading..." : filter === "inquiry" ? "No new inquiries." : "Nothing here yet."}
+                </TableCell>
+              </TableRow>
+            )}
+            {bookings?.map((b) => (
+              <TableRow
+                key={b.id}
+                className="cursor-pointer"
+                onClick={() => navigate(`/bookings/${b.id}`)}
+                data-testid={`row-booking-${b.id}`}
+              >
+                <TableCell>
+                  <Link href={`/bookings/${b.id}`} className="font-medium" onClick={(e) => e.stopPropagation()}>
+                    {customerName(b.customer)}
+                  </Link>
+                  {b.customer.companyName && <div className="text-sm text-muted-foreground">{b.customer.companyName}</div>}
+                </TableCell>
+                <TableCell>{EVENT_TYPE_LABELS[b.eventType]}</TableCell>
+                <TableCell>{formatRange(b.eventStartAt, b.eventEndAt)}</TableCell>
+                <TableCell className="text-right">{b.itemCount || ""}</TableCell>
+                <TableCell className="text-right">{b.totalPriceCents === null ? "" : formatMoney(b.totalPriceCents)}</TableCell>
+                {filter === ALL && (
+                  <TableCell>
+                    <Badge variant={STATUS_BADGE[b.status]}>{BOOKING_STATUS_LABELS[b.status]}</Badge>
+                  </TableCell>
+                )}
+                {filter === "inquiry" && (
+                  <TableCell className="text-sm text-muted-foreground">{formatDateTime(b.createdAt)}</TableCell>
+                )}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+
+      {adding && <NewBookingDialog onClose={() => setAdding(false)} onCreated={(id) => navigate(`/bookings/${id}`)} />}
+    </div>
+  );
+}
+
+function initialFilter(): Filter {
+  const status = new URLSearchParams(window.location.search).get("status");
+  return status === ALL || BOOKING_STATUSES.includes(status as BookingStatus) ? (status as Filter) : "inquiry";
+}

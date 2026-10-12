@@ -3,6 +3,8 @@ import { Route, Switch } from "wouter";
 import { Loader2 } from "lucide-react";
 import AdminLayout from "./AdminLayout";
 import AccountPage from "./pages/AccountPage";
+import BookingPage from "./pages/BookingPage";
+import BookingsPage from "./pages/BookingsPage";
 import CategoriesPage from "./pages/CategoriesPage";
 import DashboardPage from "./pages/DashboardPage";
 import EquipmentPage from "./pages/EquipmentPage";
@@ -36,6 +38,8 @@ export default function AdminApp() {
     <AdminLayout user={user}>
       <Switch>
         <Route path="/" component={DashboardPage} />
+        <Route path="/bookings" component={BookingsPage} />
+        <Route path="/bookings/:id" component={BookingPage} />
         <Route path="/inventory" component={InventoryPage} />
         <Route path="/inventory/:id" component={EquipmentPage} />
         <Route path="/categories" component={CategoriesPage} />

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Link, useLocation } from "wouter";
-import { FolderTree, LayoutDashboard, LogOut, Package, UserCog, Users } from "lucide-react";
+import { CalendarDays, FolderTree, LayoutDashboard, LogOut, Package, UserCog, Users } from "lucide-react";
 import type { PublicUser } from "@shared/users";
 import ThemeToggle from "@/components/ThemeToggle";
 import {
@@ -12,16 +12,19 @@ import {
   SidebarHeader,
   SidebarInset,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
+import { useBookingCounts } from "./bookings";
 import { useLogout } from "./useAuth";
 
 // Paths are relative to /admin. Add sections here as later phases land.
 const NAV_ITEMS = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/bookings", label: "Bookings", icon: CalendarDays },
   { href: "/inventory", label: "Inventory", icon: Package },
   { href: "/categories", label: "Categories", icon: FolderTree },
   { href: "/staff", label: "Staff", icon: Users },
@@ -30,6 +33,8 @@ const NAV_ITEMS = [
 export default function AdminLayout({ user, children }: { user: PublicUser; children: ReactNode }) {
   const [location] = useLocation();
   const logout = useLogout();
+  // New inquiries waiting for a reply.
+  const { data: counts } = useBookingCounts();
 
   return (
     <SidebarProvider>
@@ -52,6 +57,9 @@ export default function AdminLayout({ user, children }: { user: PublicUser; chil
                         <span>{item.label}</span>
                       </Link>
                     </SidebarMenuButton>
+                    {item.href === "/bookings" && !!counts?.inquiry && (
+                      <SidebarMenuBadge data-testid="badge-inquiries">{counts.inquiry}</SidebarMenuBadge>
+                    )}
                   </SidebarMenuItem>
                 ))}
               </SidebarMenu>

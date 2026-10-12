@@ -7,7 +7,8 @@ export function TextareaField<T extends FieldValues>({
   name,
   label,
 }: {
-  control: Control<T>;
+  // Any transformed type, so forms whose schema reshapes values (like null for "unsure") fit.
+  control: Control<T, any, any>;
   name: FieldPath<T>;
   label: string;
 }) {

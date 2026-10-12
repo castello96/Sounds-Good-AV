@@ -2,6 +2,7 @@ import { Router, type Express } from "express";
 import { createUserSchema, resetPasswordSchema, updateUserSchema } from "@shared/users";
 import { requireAuth } from "./auth";
 import { handle, idParam } from "./http";
+import { bookingRouter } from "./bookingRoutes";
 import { inventoryRouter } from "./inventoryRoutes";
 import { createUser, listUsers, resetPassword, updateUser } from "./services/users";
 
@@ -43,6 +44,7 @@ export function registerAdminRoutes(app: Express) {
   );
 
   admin.use(inventoryRouter());
+  admin.use(bookingRouter());
 
   // Unknown admin endpoints get JSON, not the SPA's index.html.
   admin.use((_req, res) => {
