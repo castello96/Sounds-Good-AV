@@ -11,8 +11,9 @@ import {
   type BookingItem,
   type BookingStatus,
 } from "@shared/bookings";
+import { balanceDue, PAYMENT_METHOD_LABELS, type Payment, type PaymentKind } from "@shared/payments";
 import { EVENT_TYPE_LABELS } from "@shared/schema";
-import { formatDateTime, formatRange } from "@shared/time";
+import { formatDate, formatDateTime, formatRange } from "@shared/time";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -23,6 +24,7 @@ import { api } from "../api";
 import { customerName, invalidateBookings, STATUS_BADGE, useBooking } from "../bookings";
 import { CustomerDialog, DELIVERY_LABELS, DetailsDialog, ItemDialog } from "../components/BookingDialogs";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { PaymentDialog } from "../components/PaymentDialog";
 import { equipmentName } from "../inventory";
 
 type DialogState =
@@ -31,6 +33,8 @@ type DialogState =
   | { kind: "item"; equipmentId?: number }
   | { kind: "removeItem"; item: BookingItem }
   | { kind: "cancel" }
+  | { kind: "payment"; paymentKind: PaymentKind; payment?: Payment }
+  | { kind: "removePayment"; payment: Payment }
   | null;
 
 // Completing a booking comes with returns in a later phase.
@@ -274,6 +278,13 @@ export default function BookingPage({ params }: { params: { id: string } }) {
         )}
       </div>
 
+      <Payments
+        booking={booking}
+        onRecord={(paymentKind) => setDialog({ kind: "payment", paymentKind })}
+        onEdit={(payment) => setDialog({ kind: "payment", paymentKind: payment.kind, payment })}
+        onRemove={(payment) => setDialog({ kind: "removePayment", payment })}
+      />
+
       {dialog?.kind === "customer" && <CustomerDialog booking={booking} onClose={close} />}
       {dialog?.kind === "details" && <DetailsDialog booking={booking} onClose={close} />}
       {dialog?.kind === "item" && <ItemDialog booking={booking} equipmentId={dialog.equipmentId} onClose={close} />}
@@ -286,10 +297,31 @@ export default function BookingPage({ params }: { params: { id: string } }) {
           onClose={close}
         />
       )}
+      {dialog?.kind === "payment" && (
+        <PaymentDialog booking={booking} kind={dialog.paymentKind} payment={dialog.payment} onClose={close} />
+      )}
+      {dialog?.kind === "removePayment" && (
+        <ConfirmDialog
+          title={`Delete this ${dialog.payment.kind}?`}
+          description={`${formatMoney(dialog.payment.amountCents)} on ${formatDate(dialog.payment.paidAt)}. Only delete it if it was recorded by mistake.${dialog.payment.kind === "payment" ? " To give money back, record a refund instead." : ""}`}
+          confirmLabel="Delete"
+          onConfirm={() =>
+            request("DELETE", `/api/admin/bookings/${id}/payments/${dialog.payment.id}`, undefined, `Couldn't delete the ${dialog.payment.kind}`)
+          }
+          onClose={close}
+        />
+      )}
       {dialog?.kind === "cancel" && (
         <ConfirmDialog
           title="Cancel this booking?"
-          description="Its gear is released and it can't be edited afterwards. This can't be undone."
+          description={
+            <>
+              Its gear is released and it can't be edited afterwards. This can't be undone.
+              {booking.paidCents > 0 && (
+                <> The customer has paid {formatMoney(booking.paidCents)}. Record a refund afterwards for anything you give back.</>
+              )}
+            </>
+          }
           confirmLabel="Cancel booking"
           onConfirm={() => changeStatus("cancelled")}
           onClose={close}
@@ -297,6 +329,124 @@ export default function BookingPage({ params }: { params: { id: string } }) {
       )}
     </div>
   );
+}
+
+function Payments({
+  booking,
+  onRecord,
+  onEdit,
+  onRemove,
+}: {
+  booking: BookingDetail;
+  onRecord: (kind: PaymentKind) => void;
+  onEdit: (payment: Payment) => void;
+  onRemove: (payment: Payment) => void;
+}) {
+  const canRecord = booking.status !== "inquiry";
+  const balance = balanceDue(booking);
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <h2 className="text-lg font-semibold">Payments</h2>
+        {canRecord && (
+          <div className="flex flex-wrap gap-2">
+            {booking.paidCents > 0 && (
+              <Button variant="outline" onClick={() => onRecord("refund")} data-testid="button-record-refund">
+                Record refund
+              </Button>
+            )}
+            <Button onClick={() => onRecord("payment")} data-testid="button-record-payment">
+              <Plus /> Record payment
+            </Button>
+          </div>
+        )}
+      </div>
+
+      <dl className="grid grid-cols-3 gap-4 rounded-md border p-4 text-sm">
+        <div>
+          <dt className="text-muted-foreground">Total</dt>
+          <dd className="text-lg font-semibold tabular-nums">
+            {booking.totalPriceCents === null ? <span className="text-muted-foreground">Not set</span> : formatMoney(booking.totalPriceCents)}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-muted-foreground">Paid</dt>
+          <dd className="text-lg font-semibold tabular-nums" data-testid="text-paid">
+            {formatMoney(booking.paidCents)}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-muted-foreground">{balance !== null && balance < 0 ? "Overpaid" : "Balance due"}</dt>
+          <dd className="text-lg font-semibold tabular-nums" data-testid="text-balance">
+            <BalanceValue booking={booking} balance={balance} />
+          </dd>
+        </div>
+      </dl>
+
+      {booking.payments.length > 0 && (
+        <div className="rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Date</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead>Method</TableHead>
+                <TableHead>Reference</TableHead>
+                <TableHead className="text-right">Amount</TableHead>
+                <TableHead className="w-12" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {booking.payments.map((p) => (
+                <TableRow key={p.id} data-testid={`row-payment-${p.id}`}>
+                  <TableCell className="whitespace-nowrap">{formatDate(p.paidAt)}</TableCell>
+                  <TableCell>{p.kind === "payment" ? "Payment" : "Refund"}</TableCell>
+                  <TableCell>{PAYMENT_METHOD_LABELS[p.method]}</TableCell>
+                  <TableCell>
+                    {p.reference}
+                    {p.notes && <span className="block whitespace-pre-wrap text-xs text-muted-foreground">{p.notes}</span>}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {p.kind === "refund" ? `-${formatMoney(p.amountCents)}` : formatMoney(p.amountCents)}
+                  </TableCell>
+                  <TableCell>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`Actions for ${p.kind} on ${formatDate(p.paidAt)}`}>
+                          <MoreHorizontal />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onSelect={() => onEdit(p)}>Edit</DropdownMenuItem>
+                        <DropdownMenuItem className="text-destructive" onSelect={() => onRemove(p)}>
+                          Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+      {!canRecord && <p className="text-sm text-muted-foreground">Payments can be recorded once the booking is quoted.</p>}
+      {booking.status === "cancelled" && booking.paidCents > 0 && (
+        <p className="text-sm text-muted-foreground">
+          This booking is cancelled with {formatMoney(booking.paidCents)} still paid. Record a refund for anything you give back.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function BalanceValue({ booking, balance }: { booking: BookingDetail; balance: number | null }) {
+  if (balance === null) return <span className="text-muted-foreground">Not priced</span>;
+  if (booking.status === "cancelled") return <span className="text-muted-foreground">Cancelled</span>;
+  if (balance === 0) return <span className="text-green-700 dark:text-green-500">Paid in full</span>;
+  if (balance < 0) return <span className="text-amber-600 dark:text-amber-500">{formatMoney(-balance)}</span>;
+  return <>{formatMoney(balance)}</>;
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) {

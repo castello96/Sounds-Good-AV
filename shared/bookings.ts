@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { DELIVERY_TYPES, DELIVERY_UNSURE, EVENT_TYPES, type DeliveryType, type EventType } from "./schema";
 import type { EquipmentTracking } from "./inventory";
+import type { Payment } from "./payments";
 import { LOCAL_DATE_TIME } from "./time";
 
 export const BOOKING_STATUSES = ["inquiry", "quoted", "confirmed", "completed", "cancelled"] as const;
@@ -83,6 +84,8 @@ export interface BookingSummary {
   outAt: string | null;
   backAt: string | null;
   totalPriceCents: number | null;
+  // Payments less refunds.
+  paidCents: number;
   itemCount: number;
   createdAt: string;
 }
@@ -119,6 +122,8 @@ export interface BookingDetail extends BookingSummary {
   onsiteContactName: string | null;
   onsiteContactPhone: string | null;
   items: BookingItem[];
+  // Oldest first.
+  payments: Payment[];
   // The window availability is checked against: out/back, or the event times until those are set.
   window: { start: string; end: string };
 }
@@ -176,7 +181,8 @@ const optionalLocalDateTime = z
 
 const email = z.string().trim().toLowerCase().email("Enter a valid email address").max(254);
 
-const price = z
+/** A dollar amount typed by staff, like "1,250.50", as cents. Blank gives null. */
+export const price = z
   .string()
   .nullish()
   .transform((v, ctx) => {

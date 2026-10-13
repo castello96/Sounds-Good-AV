@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { Plus } from "lucide-react";
-import { BOOKING_STATUS_LABELS, BOOKING_STATUSES, formatMoney, type BookingStatus } from "@shared/bookings";
+import { BOOKING_STATUS_LABELS, BOOKING_STATUSES, formatMoney, type BookingStatus, type BookingSummary } from "@shared/bookings";
+import { balanceDue } from "@shared/payments";
 import { EVENT_TYPE_LABELS } from "@shared/schema";
 import { formatDateTime, formatRange } from "@shared/time";
 import { Badge } from "@/components/ui/badge";
@@ -70,6 +71,7 @@ export default function BookingsPage() {
               <TableHead>When</TableHead>
               <TableHead className="text-right">Items</TableHead>
               <TableHead className="text-right">Total</TableHead>
+              {filter !== "inquiry" && <TableHead className="text-right">Balance due</TableHead>}
               {filter === ALL && <TableHead>Status</TableHead>}
               {filter === "inquiry" && <TableHead>Received</TableHead>}
             </TableRow>
@@ -77,7 +79,7 @@ export default function BookingsPage() {
           <TableBody>
             {(isLoading || bookings?.length === 0) && (
               <TableRow>
-                <TableCell colSpan={6} className="text-muted-foreground">
+                <TableCell colSpan={7} className="text-muted-foreground">
                   {isLoading ? "Loading..." : filter === "inquiry" ? "No new inquiries." : "Nothing here yet."}
                 </TableCell>
               </TableRow>
@@ -99,6 +101,11 @@ export default function BookingsPage() {
                 <TableCell>{formatRange(b.eventStartAt, b.eventEndAt)}</TableCell>
                 <TableCell className="text-right">{b.itemCount || ""}</TableCell>
                 <TableCell className="text-right">{b.totalPriceCents === null ? "" : formatMoney(b.totalPriceCents)}</TableCell>
+                {filter !== "inquiry" && (
+                  <TableCell className="text-right">
+                    <Balance booking={b} />
+                  </TableCell>
+                )}
                 {filter === ALL && (
                   <TableCell>
                     <Badge variant={STATUS_BADGE[b.status]}>{BOOKING_STATUS_LABELS[b.status]}</Badge>
@@ -121,4 +128,12 @@ export default function BookingsPage() {
 function initialFilter(): Filter {
   const status = new URLSearchParams(window.location.search).get("status");
   return status === ALL || BOOKING_STATUSES.includes(status as BookingStatus) ? (status as Filter) : "inquiry";
+}
+
+function Balance({ booking }: { booking: BookingSummary }) {
+  const balance = balanceDue(booking);
+  if (balance === null || booking.status === "inquiry" || booking.status === "cancelled") return null;
+  if (balance === 0) return <span className="text-sm text-muted-foreground">Paid</span>;
+  if (balance < 0) return <span className="text-sm text-amber-600 dark:text-amber-500">Overpaid {formatMoney(-balance)}</span>;
+  return <>{formatMoney(balance)}</>;
 }

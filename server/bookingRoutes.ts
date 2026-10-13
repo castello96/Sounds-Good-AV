@@ -8,12 +8,14 @@ import {
   createBookingSchema,
   customerSchema,
 } from "@shared/bookings";
+import { paymentSchema } from "@shared/payments";
 import { handle, idParam } from "./http";
 import * as bookings from "./services/bookings";
+import * as payments from "./services/payments";
 
 const searchSchema = z.object({ q: z.string().max(200).default("") });
 
-/** Booking and customer endpoints, mounted inside the authenticated admin router. */
+/** Booking, payment and customer endpoints, mounted inside the authenticated admin router. */
 export function bookingRouter() {
   const router = Router();
 
@@ -72,6 +74,26 @@ export function bookingRouter() {
     "/bookings/:id/items/:equipmentId",
     handle(async (req, res) => {
       res.json(await bookings.removeBookingItem(req.user!.id, idParam(req), idParam(req, "equipmentId")));
+    }),
+  );
+
+  router.post(
+    "/bookings/:id/payments",
+    handle(async (req, res) => {
+      res.status(201).json(await payments.recordPayment(req.user!.id, idParam(req), paymentSchema.parse(req.body)));
+    }),
+  );
+  router.put(
+    "/bookings/:id/payments/:paymentId",
+    handle(async (req, res) => {
+      const data = paymentSchema.parse(req.body);
+      res.json(await payments.updatePayment(req.user!.id, idParam(req), idParam(req, "paymentId"), data));
+    }),
+  );
+  router.delete(
+    "/bookings/:id/payments/:paymentId",
+    handle(async (req, res) => {
+      res.json(await payments.deletePayment(req.user!.id, idParam(req), idParam(req, "paymentId")));
     }),
   );
 
