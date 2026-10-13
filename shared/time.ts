@@ -5,6 +5,9 @@ export const BUSINESS_TIME_ZONE = "America/New_York";
 // A wall-clock date and time as typed into a datetime-local input.
 export const LOCAL_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
 
+// A wall-clock date as typed into a date input.
+export const LOCAL_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
 const partsFormat = new Intl.DateTimeFormat("en-US", {
   timeZone: BUSINESS_TIME_ZONE,
   year: "numeric",
@@ -20,6 +23,9 @@ export function toLocalInput(iso: string): string {
   const p = Object.fromEntries(partsFormat.formatToParts(new Date(iso)).map((x) => [x.type, x.value]));
   return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
 }
+
+/** Today's date in business time: "2026-06-20". */
+export const todayLocal = () => toLocalInput(new Date().toISOString()).slice(0, 10);
 
 const dateTimeFormat = new Intl.DateTimeFormat("en-US", {
   timeZone: BUSINESS_TIME_ZONE,

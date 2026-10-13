@@ -17,9 +17,10 @@ import {
   type customerSchema,
   type Venue,
 } from "@shared/bookings";
+import type { Payment } from "@shared/payments";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { db, withActor, type Db, type Tx } from "../db";
-import { addresses, bookingItems, bookings, customers, equipment, inventory } from "../db/schema";
+import { addresses, bookingItems, bookings, customers, equipment, inventory, payments } from "../db/schema";
 import { notFound, ServiceError, write } from "./errors";
 import { localToUtc } from "./time";
 
@@ -201,10 +202,11 @@ export async function bookingAvailability(id: number): Promise<Availability[]> {
 // ---------------------------------------------------------------------------
 
 const itemCount = sql<number>`(select count(*)::int from ${bookingItems} where ${bookingItems.bookingId} = ${bookings.id})`;
+const paidCents = sql<number>`(select coalesce(sum(${payments.amountCents}), 0)::int from ${payments} where ${payments.bookingId} = ${bookings.id})`;
 
 function summaryQuery() {
   return db
-    .select({ booking: bookings, customer: customerColumns, itemCount })
+    .select({ booking: bookings, customer: customerColumns, itemCount, paidCents })
     .from(bookings)
     .innerJoin(customers, eq(customers.id, bookings.customerId));
 }
@@ -213,6 +215,7 @@ const toSummary = (r: {
   booking: BookingRow;
   customer: BookingSummary["customer"];
   itemCount: number;
+  paidCents: number;
 }): BookingSummary => ({
   id: r.booking.id,
   status: r.booking.status,
@@ -223,6 +226,7 @@ const toSummary = (r: {
   outAt: isoOrNull(r.booking.outAt),
   backAt: isoOrNull(r.booking.backAt),
   totalPriceCents: r.booking.totalPriceCents,
+  paidCents: r.paidCents,
   itemCount: r.itemCount,
   createdAt: iso(r.booking.createdAt),
 });
@@ -254,7 +258,7 @@ export async function bookingCounts(): Promise<BookingCounts> {
 
 export async function getBooking(id: number): Promise<BookingDetail> {
   const [row] = await db
-    .select({ booking: bookings, customer: customers, address: addresses, itemCount })
+    .select({ booking: bookings, customer: customers, address: addresses, itemCount, paidCents })
     .from(bookings)
     .innerJoin(customers, eq(customers.id, bookings.customerId))
     .leftJoin(addresses, eq(addresses.id, bookings.addressId))
@@ -276,6 +280,12 @@ export async function getBooking(id: number): Promise<BookingDetail> {
     .where(eq(bookingItems.bookingId, id))
     .orderBy(asc(equipment.brand), asc(equipment.model));
 
+  const paymentRows = await db
+    .select()
+    .from(payments)
+    .where(eq(payments.bookingId, id))
+    .orderBy(asc(payments.paidAt), asc(payments.id));
+
   const window = windowOf(booking);
   const availability = await computeAvailability(
     db,
@@ -285,7 +295,7 @@ export async function getBooking(id: number): Promise<BookingDetail> {
   );
 
   return {
-    ...toSummary({ booking, customer: row.customer, itemCount: row.itemCount }),
+    ...toSummary({ booking, customer: row.customer, itemCount: row.itemCount, paidCents: row.paidCents }),
     customer: toCustomer(row.customer),
     venue: address
       ? {
@@ -303,16 +313,28 @@ export async function getBooking(id: number): Promise<BookingDetail> {
     onsiteContactName: booking.onsiteContactName,
     onsiteContactPhone: booking.onsiteContactPhone,
     items: items.map((i) => ({ ...i, availability: availability.get(i.equipmentId)! })),
+    payments: paymentRows.map(toPayment),
     window: { start: iso(window.start), end: iso(window.end) },
   };
 }
+
+const toPayment = (p: typeof payments.$inferSelect): Payment => ({
+  id: p.id,
+  kind: p.amountCents < 0 ? "refund" : "payment",
+  amountCents: Math.abs(p.amountCents),
+  method: p.method,
+  reference: p.reference,
+  paidAt: iso(p.paidAt),
+  notes: p.notes,
+  createdAt: iso(p.createdAt),
+});
 
 // ---------------------------------------------------------------------------
 // Changing bookings
 // ---------------------------------------------------------------------------
 
 /** Locks the booking for the rest of the transaction, so changes to it queue up. */
-async function lockBooking(tx: Tx, id: number): Promise<BookingRow> {
+export async function lockBooking(tx: Tx, id: number): Promise<BookingRow> {
   const [row] = await tx.select().from(bookings).where(eq(bookings.id, id)).for("update");
   notFound(row, "Booking");
   return row;

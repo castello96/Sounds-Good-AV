@@ -17,7 +17,7 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 // Relative import: drizzle-kit loads this file without the tsconfig path aliases.
-import { DELIVERY_TYPES, EVENT_TYPES } from "../../shared/schema";
+import { DELIVERY_TYPES, EVENT_TYPES, PAYMENT_METHODS } from "../../shared/schema";
 
 // ---------------------------------------------------------------------------
 // Enums
@@ -46,15 +46,7 @@ export const deliveryType = pgEnum("delivery_type", DELIVERY_TYPES);
 
 export const eventType = pgEnum("event_type", EVENT_TYPES);
 
-export const paymentMethod = pgEnum("payment_method", [
-  "cash",
-  "check",
-  "card",
-  "venmo",
-  "zelle",
-  "bank_transfer",
-  "other",
-]);
+export const paymentMethod = pgEnum("payment_method", PAYMENT_METHODS);
 
 export const auditAction = pgEnum("audit_action", ["insert", "update", "delete"]);
 

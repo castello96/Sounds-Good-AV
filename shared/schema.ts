@@ -33,6 +33,10 @@ export const DELIVERY_TYPE_LABELS: Record<DeliveryType, { label: string; descrip
   managed: { label: "Fully managed", description: "We run the sound for the whole event" },
 };
 
+// How customers pay. Staff record payments by hand.
+export const PAYMENT_METHODS = ["cash", "check", "card", "venmo", "zelle", "bank_transfer", "other"] as const;
+export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
+
 // The form submits "unsure" when the customer doesn't pick a delivery option.
 export const DELIVERY_UNSURE = "unsure";
 
