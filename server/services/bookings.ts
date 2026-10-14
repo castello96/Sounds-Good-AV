@@ -32,6 +32,7 @@ import {
   payments,
 } from "../db/schema";
 import { notFound, ServiceError, write } from "./errors";
+import { openIssueCounts } from "./gearIssues";
 import { localToUtc } from "./time";
 
 type CreateBookingData = z.output<typeof createBookingSchema>;
@@ -128,6 +129,7 @@ const unitCount = (condition: SQL) =>
 const { returnedAt, lostAt } = bookingItemUnits;
 const itemReturned = sql<number>`(${bookingItems.quantityReturned} + ${unitCount(sql`${returnedAt} is not null`)})`;
 const itemLost = sql<number>`(${bookingItems.quantityLost} + ${unitCount(sql`${lostAt} is not null`)})`;
+const itemDamaged = sql<number>`(${bookingItems.quantityDamaged} + ${unitCount(sql`${bookingItemUnits.damaged}`)})`;
 // Gear on an item that went out and hasn't come back or been marked lost.
 const itemStillOut = sql<number>`(${bookingItems.quantityOut} - ${bookingItems.quantityReturned}
   - ${bookingItems.quantityLost} + ${unitCount(sql`${returnedAt} is null and ${lostAt} is null`)})`;
@@ -138,7 +140,8 @@ const itemStillOut = sql<number>`(${bookingItems.quantityOut} - ${bookingItems.q
  * touch (one returns at 10:00, the next leaves at 10:00) don't overlap.
  *
  * A confirmed booking that overlaps holds what it needs, less anything that
- * already came back or was lost (lost gear is out of the owned count instead).
+ * already came back or was lost. Lost and damaged gear tracked by quantity is
+ * held by its lost and repair records instead, and units by their status.
  * Gear still out on an overdue booking is held too, since nobody knows when
  * it'll be back, unless the window is already over.
  */
@@ -155,7 +158,7 @@ async function computeAvailability(
   const overlaps = and(lt(bookings.outAt, window.end), gt(bookings.backAt, window.start))!;
   const now = new Date();
 
-  const [equipmentRows, activeUnits, reservedRows] = await Promise.all([
+  const [equipmentRows, activeUnits, reservedRows, issues] = await Promise.all([
     q
       .select({ id: equipment.id, tracking: equipment.tracking, quantityOwned: equipment.quantityOwned })
       .from(equipment)
@@ -182,13 +185,18 @@ async function computeAvailability(
         ),
       )
       .groupBy(bookingItems.equipmentId),
+    openIssueCounts(q, equipmentIds),
   ]);
 
   const unitsById = new Map(activeUnits.map((r) => [r.equipmentId, r.n]));
   const reservedById = new Map(reservedRows.map((r) => [r.equipmentId, r.n]));
   return new Map(
     equipmentRows.map((e) => {
-      const capacity = e.tracking === "quantity" ? e.quantityOwned : (unitsById.get(e.id) ?? 0);
+      const outOfService = issues.get(e.id);
+      const capacity =
+        e.tracking === "quantity"
+          ? e.quantityOwned - (outOfService ? outOfService.repair + outOfService.lost : 0)
+          : (unitsById.get(e.id) ?? 0);
       const reserved = reservedById.get(e.id) ?? 0;
       return [e.id, { equipmentId: e.id, capacity, reserved, available: capacity - reserved }];
     }),
@@ -328,6 +336,7 @@ export async function getBooking(id: number): Promise<BookingDetail> {
       tracking: equipment.tracking,
       quantityOut: bookingItems.quantityOut,
       returned: itemReturned,
+      damaged: itemDamaged,
       lost: itemLost,
     })
     .from(bookingItems)
@@ -352,6 +361,7 @@ export async function getBooking(id: number): Promise<BookingDetail> {
       checkedOutAt: isoOrNull(unit.checkedOutAt),
       returnedAt: isoOrNull(unit.returnedAt),
       lostAt: isoOrNull(unit.lostAt),
+      damaged: unit.damaged,
       returnNotes: unit.returnNotes,
     });
     unitsByItem.set(unit.bookingItemId, list);

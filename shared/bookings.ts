@@ -121,6 +121,8 @@ export interface PackedUnit {
   checkedOutAt: string | null;
   returnedAt: string | null;
   lostAt: string | null;
+  // Came back needing repair.
+  damaged: boolean;
   returnNotes: string | null;
 }
 
@@ -133,8 +135,10 @@ export interface BookingItem {
   quantity: number;
   // How many went out, came back and were lost. Counted from `units` for
   // gear tracked by unit, entered by hand for gear tracked by quantity.
+  // Damaged gear came back needing repair, and is part of `returned`.
   out: number;
   returned: number;
+  damaged: number;
   lost: number;
   // Oldest first. Always empty for gear tracked by quantity.
   units: PackedUnit[];

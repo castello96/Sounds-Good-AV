@@ -101,7 +101,12 @@ export default function PackPage({ params }: { params: { id: string } }) {
         <p className="text-sm text-muted-foreground" data-testid="text-progress">
           {mode === "pack"
             ? `${out} of ${quantity} packed`
-            : `${sum(booking.items, (i) => i.returned)} of ${out} back` + lostSuffix(sum(booking.items, (i) => i.lost))}
+            : returnSummary({
+                out,
+                returned: sum(booking.items, (i) => i.returned),
+                damaged: sum(booking.items, (i) => i.damaged),
+                lost: sum(booking.items, (i) => i.lost),
+              })}
         </p>
       </div>
 
@@ -151,7 +156,13 @@ function refresh() {
 
 const sum = (items: BookingItem[], f: (i: BookingItem) => number) => items.reduce((n, i) => n + f(i), 0);
 
-const lostSuffix = (lost: number) => (lost > 0 ? `, ${lost} lost` : "");
+/** Like "5 of 6 back, 2 need repair, 1 lost". */
+const returnSummary = (c: { out: number; returned: number; damaged: number; lost: number }) =>
+  `${c.returned} of ${c.out} back` +
+  (c.damaged > 0 ? `, ${c.damaged} ${c.damaged === 1 ? "needs" : "need"} repair` : "") +
+  (c.lost > 0 ? `, ${c.lost} lost` : "");
+
+type Counts = { out?: number; returned?: number; damaged?: number; lost?: number; notes?: string };
 
 function progress(booking: BookingDetail, mode: Mode) {
   const out = sum(booking.items, (i) => i.out);
@@ -284,11 +295,10 @@ function ItemCard({
   live: boolean;
   onUnpack: (unit: PackedUnit) => void;
   onLost: (unit: PackedUnit) => void;
-  onCounts: (counts: { out?: number; returned?: number; lost?: number }) => Promise<unknown>;
+  onCounts: (counts: Counts) => Promise<unknown>;
 }) {
   const done = mode === "pack" ? item.out >= item.quantity : item.out > 0 && item.returned + item.lost >= item.out;
-  const summary =
-    mode === "pack" ? `${item.out} of ${item.quantity} packed` : `${item.returned} of ${item.out} back${lostSuffix(item.lost)}`;
+  const summary = mode === "pack" ? `${item.out} of ${item.quantity} packed` : returnSummary(item);
 
   return (
     <Card data-testid={`card-item-${item.equipmentId}`}>
@@ -308,7 +318,7 @@ function ItemCard({
         {item.tracking === "quantity" ? (
           // Keyed on the saved counts, so the boxes reset after each save.
           <CountEditor
-            key={`${booking.id}-${item.out}-${item.returned}-${item.lost}`}
+            key={`${booking.id}-${item.out}-${item.returned}-${item.damaged}-${item.lost}`}
             item={item}
             mode={mode}
             live={live}
@@ -341,7 +351,7 @@ function UnitChip({
   onUnpack: (unit: PackedUnit) => void;
   onLost: (unit: PackedUnit) => void;
 }) {
-  const state = unit.returnedAt ? "back" : unit.lostAt ? "lost" : "out";
+  const state = unit.returnedAt ? (unit.damaged ? "repair" : "back") : unit.lostAt ? "lost" : "out";
   const stillOut = state === "out";
   return (
     <div
@@ -349,6 +359,7 @@ function UnitChip({
         "inline-flex items-center gap-1.5 rounded-full border py-1 pl-3 text-sm",
         live && stillOut ? "pr-1" : "pr-3",
         state === "back" && "border-green-600/40 bg-green-500/10 text-green-700 dark:text-green-400",
+        state === "repair" && "border-amber-600/40 bg-amber-500/10 text-amber-700 dark:text-amber-400",
         state === "lost" && "border-destructive/40 bg-destructive/10 text-destructive",
       )}
       title={unit.returnNotes ?? undefined}
@@ -356,6 +367,7 @@ function UnitChip({
     >
       {state === "back" && <Check className="h-3.5 w-3.5" />}
       <span className="font-mono">{unit.assetTag}</span>
+      {state === "repair" && <span className="text-xs">repair</span>}
       {state === "lost" && <span className="text-xs">lost</span>}
       {live && stillOut && mode === "pack" && (
         <button
@@ -393,62 +405,88 @@ function CountEditor({
   item: BookingItem;
   mode: Mode;
   live: boolean;
-  onSave: (counts: { out?: number; returned?: number; lost?: number }) => Promise<unknown>;
+  onSave: (counts: Counts) => Promise<unknown>;
 }) {
   const [out, setOut] = useState(String(item.out));
   const [returned, setReturned] = useState(String(item.returned));
+  const [damaged, setDamaged] = useState(String(item.damaged));
   const [lost, setLost] = useState(String(item.lost));
+  const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const fields: [string, string, (v: string) => void, number][] =
     mode === "pack"
       ? [["Out", out, setOut, item.quantity]]
       : [
           ["Back", returned, setReturned, item.out],
+          // Out of the ones that came back.
+          ["Repair", damaged, setDamaged, Number(returned)],
           ["Lost", lost, setLost, item.out],
         ];
-  const changed = mode === "pack" ? out !== String(item.out) : returned !== String(item.returned) || lost !== String(item.lost);
+  const changed =
+    mode === "pack"
+      ? out !== String(item.out)
+      : returned !== String(item.returned) ||
+        damaged !== String(item.damaged) ||
+        lost !== String(item.lost) ||
+        notes.trim() !== "";
 
   const save = () => {
     setSaving(true);
-    const counts = mode === "pack" ? { out: Number(out) } : { returned: Number(returned), lost: Number(lost) };
+    const counts =
+      mode === "pack"
+        ? { out: Number(out) }
+        : { returned: Number(returned), damaged: Number(damaged), lost: Number(lost), notes };
     onSave(counts).finally(() => setSaving(false));
   };
 
   if (mode === "return" && item.out === 0) return <p className="text-sm text-muted-foreground">None went out.</p>;
+  const showNotes = mode === "return" && live && (Number(damaged) > 0 || Number(lost) > 0);
   return (
-    <div className="flex flex-wrap items-end gap-3">
-      {fields.map(([label, value, set, max]) => (
-        <div key={label} className="space-y-1">
-          <Label htmlFor={`count-${item.equipmentId}-${label}`}>{label}</Label>
-          <Input
-            id={`count-${item.equipmentId}-${label}`}
-            type="number"
-            inputMode="numeric"
-            min={0}
-            max={max}
-            value={value}
-            onChange={(e) => set(e.target.value)}
-            disabled={!live || saving}
-            className="h-11 w-24 text-lg"
-            data-testid={`input-count-${label.toLowerCase()}-${item.equipmentId}`}
-          />
-        </div>
-      ))}
-      {live && (
-        <Button
-          variant="outline"
-          className="h-11"
-          disabled={!changed || saving}
-          onClick={save}
-          data-testid={`button-save-counts-${item.equipmentId}`}
-        >
-          Save
-        </Button>
-      )}
-      {mode === "pack" && live && Number(out) !== item.quantity && (
-        <Button variant="ghost" className="h-11" onClick={() => setOut(String(item.quantity))}>
-          All {item.quantity}
-        </Button>
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-end gap-3">
+        {fields.map(([label, value, set, max]) => (
+          <div key={label} className="space-y-1">
+            <Label htmlFor={`count-${item.equipmentId}-${label}`}>{label}</Label>
+            <Input
+              id={`count-${item.equipmentId}-${label}`}
+              type="number"
+              inputMode="numeric"
+              min={0}
+              max={max}
+              value={value}
+              onChange={(e) => set(e.target.value)}
+              disabled={!live || saving}
+              className="h-11 w-24 text-lg"
+              data-testid={`input-count-${label.toLowerCase()}-${item.equipmentId}`}
+            />
+          </div>
+        ))}
+        {live && (
+          <Button
+            variant="outline"
+            className="h-11"
+            disabled={!changed || saving}
+            onClick={save}
+            data-testid={`button-save-counts-${item.equipmentId}`}
+          >
+            Save
+          </Button>
+        )}
+        {mode === "pack" && live && Number(out) !== item.quantity && (
+          <Button variant="ghost" className="h-11" onClick={() => setOut(String(item.quantity))}>
+            All {item.quantity}
+          </Button>
+        )}
+      </div>
+      {showNotes && (
+        <Input
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="What's wrong, or where it went missing (optional)"
+          disabled={saving}
+          aria-label="Repair or lost notes"
+          data-testid={`input-count-notes-${item.equipmentId}`}
+        />
       )}
     </div>
   );

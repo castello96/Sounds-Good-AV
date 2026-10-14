@@ -6,6 +6,7 @@ import { withActor, type Tx } from "../db";
 import { bookingItems, bookingItemUnits, equipment, inventory } from "../db/schema";
 import { getBooking, itemUnitsPacked, lockBooking } from "./bookings";
 import { notFound, ServiceError, write } from "./errors";
+import { ensureWithinOwned, syncBookingIssue } from "./gearIssues";
 
 // Packing and leaving are one step for now: a packed unit is out. Gear comes
 // back by asset tag, or is marked lost, which is the only way to close out a
@@ -155,7 +156,7 @@ export async function returnUnit(actorId: number, bookingId: number, data: Retur
 
     await tx
       .update(bookingItemUnits)
-      .set({ returnedAt: new Date(), lostAt: null, returnNotes: data.notes ?? assignment.notes })
+      .set({ returnedAt: new Date(), lostAt: null, damaged: data.needsRepair, returnNotes: data.notes ?? assignment.notes })
       .where(eq(bookingItemUnits.id, assignment.id));
     await tx
       .update(inventory)
@@ -182,9 +183,9 @@ export async function markUnitLost(actorId: number, bookingId: number, assignmen
 }
 
 /**
- * Sets how many went out, came back and were lost, for gear tracked by
- * quantity. Lost gear comes off the owned count, and goes back on if the
- * lost count is lowered.
+ * Sets how many went out, came back (some of them damaged) and were lost, for
+ * gear tracked by quantity. Damaged and lost gear is held out of stock by an
+ * open repair or lost record until it's settled in Lost and repair.
  */
 export async function setItemCounts(actorId: number, bookingId: number, equipmentId: number, data: ItemCountsData) {
   await withActor(actorId, async (tx) => {
@@ -195,11 +196,11 @@ export async function setItemCounts(actorId: number, bookingId: number, equipmen
         quantity: bookingItems.quantity,
         out: bookingItems.quantityOut,
         returned: bookingItems.quantityReturned,
+        damaged: bookingItems.quantityDamaged,
         lost: bookingItems.quantityLost,
         tracking: equipment.tracking,
         brand: equipment.brand,
         model: equipment.model,
-        owned: equipment.quantityOwned,
       })
       .from(bookingItems)
       .innerJoin(equipment, eq(equipment.id, bookingItems.equipmentId))
@@ -213,6 +214,7 @@ export async function setItemCounts(actorId: number, bookingId: number, equipmen
     const next = {
       out: data.out ?? item.out,
       returned: data.returned ?? item.returned,
+      damaged: data.damaged ?? item.damaged,
       lost: data.lost ?? item.lost,
     };
     if (next.out > item.quantity) {
@@ -221,21 +223,23 @@ export async function setItemCounts(actorId: number, bookingId: number, equipmen
     if (next.returned + next.lost > next.out) {
       throw new ServiceError(409, `Back and lost can't add up to more than the ${next.out} that went out.`);
     }
-    const lostChange = next.lost - item.lost;
-    if (item.owned - lostChange < 0) {
-      throw new ServiceError(409, `Only ${item.owned} ${label(item)} are owned, so that many can't be lost.`);
+    if (next.damaged > next.returned) {
+      throw new ServiceError(409, `Repair is out of the ones that came back, so it can't be more than ${next.returned}.`);
     }
 
     await tx
       .update(bookingItems)
-      .set({ quantityOut: next.out, quantityReturned: next.returned, quantityLost: next.lost })
+      .set({
+        quantityOut: next.out,
+        quantityReturned: next.returned,
+        quantityDamaged: next.damaged,
+        quantityLost: next.lost,
+      })
       .where(eq(bookingItems.id, item.id));
-    if (lostChange !== 0) {
-      await tx
-        .update(equipment)
-        .set({ quantityOwned: item.owned - lostChange })
-        .where(eq(equipment.id, equipmentId));
-    }
+    const ref = { id: item.id, equipmentId, brand: item.brand, model: item.model };
+    await syncBookingIssue(tx, ref, "repair", next.damaged, data.notes);
+    await syncBookingIssue(tx, ref, "lost", next.lost, data.notes);
+    await ensureWithinOwned(tx, equipmentId);
   });
   return getBooking(bookingId);
 }

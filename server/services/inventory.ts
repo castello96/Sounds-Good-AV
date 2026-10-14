@@ -23,6 +23,7 @@ import {
 import { db, withActor, type Tx } from "../db";
 import { categories, departments, equipment, equipmentTags, inventory, tags } from "../db/schema";
 import { notFound, ServiceError, write } from "./errors";
+import { emptyIssueCounts, ensureWithinOwned, openIssueCounts } from "./gearIssues";
 
 // Services take parsed input, after the schemas' trimming and uppercasing.
 type EquipmentData = z.output<typeof equipmentSchema>;
@@ -272,18 +273,25 @@ async function unitCounts(equipmentId?: number): Promise<Map<number, UnitCounts>
 }
 
 export async function listEquipment(): Promise<EquipmentSummary[]> {
-  const [rows, counts, tagMap] = await Promise.all([
+  const [rows, counts, issues, tagMap] = await Promise.all([
     summaryQuery().orderBy(asc(departments.name), asc(categories.name), asc(equipment.brand), asc(equipment.model)),
     unitCounts(),
+    openIssueCounts(db),
     tagsByEquipment(),
   ]);
-  return rows.map((row) => ({ ...row, unitCounts: counts.get(row.id) ?? emptyCounts(), tags: tagMap.get(row.id) ?? [] }));
+  return rows.map((row) => ({
+    ...row,
+    unitCounts: counts.get(row.id) ?? emptyCounts(),
+    issueCounts: issues.get(row.id) ?? emptyIssueCounts(),
+    tags: tagMap.get(row.id) ?? [],
+  }));
 }
 
 export async function getEquipment(id: number): Promise<EquipmentDetail> {
-  const [[row], counts, tagMap, units] = await Promise.all([
+  const [[row], counts, issues, tagMap, units] = await Promise.all([
     summaryQuery().where(eq(equipment.id, id)),
     unitCounts(id),
+    openIssueCounts(db, [id]),
     tagsByEquipment(id),
     db.select().from(inventory).where(eq(inventory.equipmentId, id)).orderBy(asc(inventory.assetTag)),
   ]);
@@ -291,6 +299,7 @@ export async function getEquipment(id: number): Promise<EquipmentDetail> {
   return {
     ...row,
     unitCounts: counts.get(id) ?? emptyCounts(),
+    issueCounts: issues.get(id) ?? emptyIssueCounts(),
     tags: tagMap.get(id) ?? [],
     units: units.map(toUnit),
     nextAssetTag: row.tracking === "units" ? await nextAssetTag(row.tagPrefix) : null,
@@ -352,6 +361,8 @@ export async function updateEquipment(actorId: number, id: number, update: Updat
         // Equipment tracked by units counts its units, so it has no quantity of its own.
         const values = tracking === "units" ? { ...input, quantityOwned: 0 } : input;
         if (Object.keys(input).length > 0) await tx.update(equipment).set(values).where(eq(equipment.id, id));
+        // The owned count can't drop below what's in repair or lost.
+        if (input.quantityOwned !== undefined) await ensureWithinOwned(tx, id);
         if (tagIds) await setTags(tx, id, tagIds);
       }),
     { unique: DUPLICATE_SKU, foreignKey: MISSING_CATEGORY },

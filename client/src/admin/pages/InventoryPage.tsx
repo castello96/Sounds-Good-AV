@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { Plus, Search } from "lucide-react";
+import { Plus, Search, Wrench } from "lucide-react";
 import type { EquipmentSummary } from "@shared/inventory";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { EquipmentDialog } from "../components/EquipmentDialog";
 import { TagBadges } from "../components/TagBadges";
-import { availableCount, equipmentName, useCatalog, useEquipmentList, useTags } from "../inventory";
+import { availableCount, equipmentName, outOfServiceCount, useCatalog, useEquipmentList, useTags } from "../inventory";
 
 const ALL = "all";
 
@@ -39,9 +39,16 @@ export default function InventoryPage() {
           <h1 className="text-2xl font-semibold">Inventory</h1>
           <p className="text-muted-foreground">The gear you rent out, and the units you own of each.</p>
         </div>
-        <Button onClick={() => setAdding(true)} data-testid="button-add-equipment">
-          <Plus /> Add equipment
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" asChild>
+            <Link href="/inventory/lost-and-repair" data-testid="link-lost-and-repair">
+              <Wrench /> Lost and repair
+            </Link>
+          </Button>
+          <Button onClick={() => setAdding(true)} data-testid="button-add-equipment">
+            <Plus /> Add equipment
+          </Button>
+        </div>
       </div>
 
       <div className="flex flex-col gap-2 sm:flex-row">
@@ -130,7 +137,7 @@ export default function InventoryPage() {
                   {e.tracking === "quantity" && <span className="text-muted-foreground"> (qty)</span>}
                 </TableCell>
                 <TableCell className="text-right text-muted-foreground">
-                  {e.tracking === "units" ? e.unitCounts.maintenance + e.unitCounts.lost || "" : ""}
+                  {outOfServiceCount(e) || ""}
                 </TableCell>
               </TableRow>
             ))}

@@ -286,6 +286,11 @@ export default function BookingPage({ params }: { params: { id: string } }) {
                         ) : (
                           <>
                             {item.returned} of {item.out} back
+                            {item.damaged > 0 && (
+                              <span className="text-amber-700 dark:text-amber-400">
+                                , {item.damaged} {item.damaged === 1 ? "needs" : "need"} repair
+                              </span>
+                            )}
                             {item.lost > 0 && <span className="text-destructive">, {item.lost} lost</span>}
                           </>
                         )}

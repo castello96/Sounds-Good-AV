@@ -41,7 +41,17 @@ const count = (label: string) =>
     .max(MAX_ITEM_QUANTITY, `${label} is too large`)
     .optional();
 
-/** Counts for gear tracked by quantity. Any left out stay as they are. */
-export const itemCountsSchema = z.object({ out: count("Out"), returned: count("Back"), lost: count("Lost") });
+/**
+ * Counts for gear tracked by quantity. Any left out stay as they are. Damaged
+ * gear came back, so it's counted in `returned` too, and goes to repair. Notes
+ * go on the repair and lost records.
+ */
+export const itemCountsSchema = z.object({
+  out: count("Out"),
+  returned: count("Back"),
+  damaged: count("Repair"),
+  lost: count("Lost"),
+  notes,
+});
 export type ItemCountsInput = z.input<typeof itemCountsSchema>;
 export type ItemCountsData = z.output<typeof itemCountsSchema>;

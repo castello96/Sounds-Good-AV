@@ -49,6 +49,10 @@ export const eventType = pgEnum("event_type", EVENT_TYPES);
 
 export const paymentMethod = pgEnum("payment_method", PAYMENT_METHODS);
 
+// Gear tracked by quantity that's out of service. See gear_issues.
+export const gearIssueKind = pgEnum("gear_issue_kind", ["repair", "lost"]);
+export const gearIssueResolution = pgEnum("gear_issue_resolution", ["repaired", "found", "written_off"]);
+
 export const auditAction = pgEnum("audit_action", ["insert", "update", "delete"]);
 
 // ---------------------------------------------------------------------------
@@ -273,9 +277,11 @@ export const bookingItems = pgTable(
       .references(() => equipment.id),
     quantity: integer("quantity").notNull(),
     // Pack-out counts for gear tracked by quantity. Units with asset tags are
-    // counted from booking_item_units instead, and these stay 0.
+    // counted from booking_item_units instead, and these stay 0. Damaged gear
+    // came back, so it's part of the returned count too.
     quantityOut: integer("quantity_out").notNull().default(0),
     quantityReturned: integer("quantity_returned").notNull().default(0),
+    quantityDamaged: integer("quantity_damaged").notNull().default(0),
     quantityLost: integer("quantity_lost").notNull().default(0),
     ...timestamps,
   },
@@ -288,6 +294,7 @@ export const bookingItems = pgTable(
     check(
       "booking_items_counts_valid",
       sql`${t.quantityReturned} >= 0 AND ${t.quantityLost} >= 0
+        AND ${t.quantityDamaged} >= 0 AND ${t.quantityDamaged} <= ${t.quantityReturned}
         AND ${t.quantityReturned} + ${t.quantityLost} <= ${t.quantityOut}
         AND ${t.quantityOut} <= ${t.quantity}`,
     ),
@@ -308,6 +315,8 @@ export const bookingItemUnits = pgTable(
     checkedOutAt: timestamptz("checked_out_at"),
     returnedAt: timestamptz("returned_at"),
     lostAt: timestamptz("lost_at"),
+    // Came back needing repair, so the unit went to maintenance.
+    damaged: boolean("damaged").notNull().default(false),
     returnNotes: text("return_notes"),
     ...timestamps,
   },
@@ -331,6 +340,48 @@ export const bookingItemUnits = pgTable(
       sql`${t.returnedAt} IS NULL OR (${t.checkedOutAt} IS NOT NULL AND ${t.returnedAt} >= ${t.checkedOutAt})`,
     ),
     check("booking_item_units_returned_or_lost", sql`${t.returnedAt} IS NULL OR ${t.lostAt} IS NULL`),
+    check("booking_item_units_damaged_when_returned", sql`NOT ${t.damaged} OR ${t.returnedAt} IS NOT NULL`),
+  ],
+);
+
+// Gear tracked by quantity that's out of service: damaged and waiting for
+// repair, or lost. Units with asset tags use their own status instead. Open
+// until it's settled, and settling only some of them splits off a settled row.
+// Comes from a booking's return counts, or is reported straight from inventory.
+export const gearIssues = pgTable(
+  "gear_issues",
+  {
+    id: id(),
+    equipmentId: integer("equipment_id")
+      .notNull()
+      .references(() => equipment.id),
+    bookingItemId: integer("booking_item_id"),
+    kind: gearIssueKind("kind").notNull(),
+    quantity: integer("quantity").notNull(),
+    notes: text("notes"),
+    resolution: gearIssueResolution("resolution"),
+    resolvedAt: timestamptz("resolved_at"),
+    ...timestamps,
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.bookingItemId, t.equipmentId],
+      foreignColumns: [bookingItems.id, bookingItems.equipmentId],
+    }),
+    index().on(t.equipmentId),
+    index().on(t.bookingItemId),
+    // A booking's open repair and lost counts each live in one row.
+    uniqueIndex("gear_issues_one_open_per_booking_item")
+      .on(t.bookingItemId, t.kind)
+      .where(sql`${t.resolvedAt} IS NULL`),
+    check("gear_issues_quantity_positive", sql`${t.quantity} > 0`),
+    check("gear_issues_resolved_together", sql`(${t.resolution} IS NULL) = (${t.resolvedAt} IS NULL)`),
+    check(
+      "gear_issues_resolution_fits_kind",
+      sql`${t.resolution} IS NULL OR ${t.resolution} = 'written_off'
+        OR (${t.kind} = 'repair' AND ${t.resolution} = 'repaired')
+        OR (${t.kind} = 'lost' AND ${t.resolution} = 'found')`,
+    ),
   ],
 );
 
