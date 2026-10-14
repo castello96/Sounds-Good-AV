@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { customerName, STATUS_BADGE, useBookingCounts, useBookings } from "../bookings";
 import { NewBookingDialog } from "../components/NewBookingDialog";
+import { StatusHint } from "../components/StatusHint";
 
 const ALL = "all";
 type Filter = BookingStatus | typeof ALL;
@@ -51,14 +52,23 @@ export default function BookingsPage() {
 
       <Tabs value={filter} onValueChange={changeFilter}>
         <TabsList className="h-auto flex-wrap">
-          {[...BOOKING_STATUSES, ALL].map((s) => (
-            <TabsTrigger key={s} value={s} data-testid={`tab-${s}`}>
-              {TAB_LABELS[s as Filter]}
-              {s !== ALL && counts && counts[s as BookingStatus] > 0 && (
-                <span className="ml-1.5 text-xs text-muted-foreground">{counts[s as BookingStatus]}</span>
-              )}
-            </TabsTrigger>
-          ))}
+          {[...BOOKING_STATUSES, ALL].map((s) => {
+            const tab = (
+              <TabsTrigger key={s} value={s} data-testid={`tab-${s}`}>
+                {TAB_LABELS[s as Filter]}
+                {s !== ALL && counts && counts[s as BookingStatus] > 0 && (
+                  <span className="ml-1.5 text-xs text-muted-foreground">{counts[s as BookingStatus]}</span>
+                )}
+              </TabsTrigger>
+            );
+            return s === ALL ? (
+              tab
+            ) : (
+              <StatusHint key={s} status={s as BookingStatus}>
+                {tab}
+              </StatusHint>
+            );
+          })}
         </TabsList>
       </Tabs>
 

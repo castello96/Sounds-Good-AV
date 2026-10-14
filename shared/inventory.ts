@@ -63,6 +63,15 @@ export interface DepartmentWithCategories {
 
 export type UnitCounts = Record<InventoryStatus, number>;
 
+export interface TagRef {
+  id: number;
+  name: string;
+}
+
+export interface TagSummary extends TagRef {
+  equipmentCount: number;
+}
+
 export interface EquipmentSummary {
   id: number;
   categoryId: number;
@@ -77,6 +86,8 @@ export interface EquipmentSummary {
   // Always 0 for equipment tracked by units; count its units instead.
   quantityOwned: number;
   unitCounts: UnitCounts;
+  // Sorted by name.
+  tags: TagRef[];
 }
 
 export interface InventoryUnit {
@@ -115,6 +126,12 @@ export type CreateCategoryInput = z.infer<typeof createCategorySchema>;
 export const updateCategorySchema = createCategorySchema.partial();
 export type UpdateCategoryInput = z.infer<typeof updateCategorySchema>;
 
+// The most tags one piece of equipment can have.
+export const MAX_EQUIPMENT_TAGS = 20;
+
+export const tagSchema = z.object({ name: required("Name", 40) });
+export type TagInput = z.infer<typeof tagSchema>;
+
 export const equipmentSchema = z.object({
   categoryId: id,
   // Stored uppercase so "sm58" and "SM58" can't both exist.
@@ -128,6 +145,11 @@ export const equipmentSchema = z.object({
     .min(0, "Quantity can't be negative")
     .max(100_000, "That's a lot. Use a quantity under 100,000")
     .default(0),
+  tagIds: z
+    .array(id)
+    .max(MAX_EQUIPMENT_TAGS, `Use at most ${MAX_EQUIPMENT_TAGS} tags`)
+    .default([])
+    .transform((ids) => Array.from(new Set(ids))),
 });
 export type EquipmentInput = z.input<typeof equipmentSchema>;
 

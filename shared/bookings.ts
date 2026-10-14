@@ -15,6 +15,15 @@ export const BOOKING_STATUS_LABELS: Record<BookingStatus, string> = {
   cancelled: "Cancelled",
 };
 
+// What each status means, shown as a tooltip wherever the status appears.
+export const BOOKING_STATUS_DESCRIPTIONS: Record<BookingStatus, string> = {
+  inquiry: "A request we haven't priced yet. No gear is held.",
+  quoted: "A price has been sent. No gear is held until it's confirmed.",
+  confirmed: "The customer agreed and the gear is reserved for these dates.",
+  completed: "The event is over and the gear is back. Kept as a record.",
+  cancelled: "The booking fell through. Kept as a record, and refunds can still be recorded.",
+};
+
 /**
  * Where a booking can go next. Phone deals can skip straight from inquiry to
  * confirmed. Only confirmed bookings hold gear, so confirming re-checks

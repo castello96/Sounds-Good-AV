@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Link, useLocation } from "wouter";
-import { CalendarDays, FolderTree, LayoutDashboard, LogOut, Package, UserCog, Users } from "lucide-react";
+import { CalendarDays, FolderTree, LayoutDashboard, LogOut, Package, Tags, UserCog, Users } from "lucide-react";
 import type { PublicUser } from "@shared/users";
 import ThemeToggle from "@/components/ThemeToggle";
 import {
@@ -27,6 +27,7 @@ const NAV_ITEMS = [
   { href: "/bookings", label: "Bookings", icon: CalendarDays },
   { href: "/inventory", label: "Inventory", icon: Package },
   { href: "/categories", label: "Categories", icon: FolderTree },
+  { href: "/tags", label: "Tags", icon: Tags },
   { href: "/staff", label: "Staff", icon: Users },
 ];
 

@@ -25,6 +25,7 @@ import { customerName, invalidateBookings, STATUS_BADGE, useBooking } from "../b
 import { CustomerDialog, DELIVERY_LABELS, DetailsDialog, ItemDialog } from "../components/BookingDialogs";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { PaymentDialog } from "../components/PaymentDialog";
+import { StatusHint } from "../components/StatusHint";
 import { equipmentName } from "../inventory";
 
 type DialogState =
@@ -86,9 +87,16 @@ export default function BookingPage({ params }: { params: { id: string } }) {
         <div className="space-y-1">
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-semibold">{customerName(booking.customer)}</h1>
-            <Badge variant={STATUS_BADGE[booking.status]} data-testid="badge-status">
-              {BOOKING_STATUS_LABELS[booking.status]}
-            </Badge>
+            <StatusHint status={booking.status}>
+              <button
+                type="button"
+                className="cursor-help rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <Badge variant={STATUS_BADGE[booking.status]} data-testid="badge-status">
+                  {BOOKING_STATUS_LABELS[booking.status]}
+                </Badge>
+              </button>
+            </StatusHint>
           </div>
           <p className="text-muted-foreground">
             {EVENT_TYPE_LABELS[booking.eventType]} · {formatRange(booking.eventStartAt, booking.eventEndAt)}

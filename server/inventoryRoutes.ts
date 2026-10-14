@@ -4,6 +4,7 @@ import {
   createUnitsSchema,
   departmentSchema,
   equipmentSchema,
+  tagSchema,
   updateCategorySchema,
   updateEquipmentSchema,
   updateUnitSchema,
@@ -58,6 +59,32 @@ export function inventoryRouter() {
     "/categories/:id",
     handle(async (req, res) => {
       await inventory.deleteCategory(req.user!.id, idParam(req));
+      res.status(204).end();
+    }),
+  );
+
+  router.get(
+    "/tags",
+    handle(async (_req, res) => {
+      res.json(await inventory.listTags());
+    }),
+  );
+  router.post(
+    "/tags",
+    handle(async (req, res) => {
+      res.status(201).json(await inventory.createTag(req.user!.id, tagSchema.parse(req.body)));
+    }),
+  );
+  router.patch(
+    "/tags/:id",
+    handle(async (req, res) => {
+      res.json(await inventory.updateTag(req.user!.id, idParam(req), tagSchema.parse(req.body)));
+    }),
+  );
+  router.delete(
+    "/tags/:id",
+    handle(async (req, res) => {
+      await inventory.deleteTag(req.user!.id, idParam(req));
       res.status(204).end();
     }),
   );

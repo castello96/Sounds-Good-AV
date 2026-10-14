@@ -1,5 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import type { DepartmentWithCategories, EquipmentDetail, EquipmentSummary, InventoryStatus } from "@shared/inventory";
+import type {
+  DepartmentWithCategories,
+  EquipmentDetail,
+  EquipmentSummary,
+  InventoryStatus,
+  TagSummary,
+} from "@shared/inventory";
 import { queryClient } from "@/lib/queryClient";
 import { api } from "./api";
 import type { SelectOptionGroup } from "./components/SelectField";
@@ -7,11 +13,19 @@ import type { SelectOptionGroup } from "./components/SelectField";
 export const CATALOG_KEY = ["/api/admin/catalog"];
 // Prefix shared by the list and every detail query.
 export const EQUIPMENT_KEY = ["/api/admin/equipment"];
+export const TAGS_KEY = ["/api/admin/tags"];
 
 export function useCatalog() {
   return useQuery({
     queryKey: CATALOG_KEY,
     queryFn: () => api<DepartmentWithCategories[]>("GET", "/api/admin/catalog"),
+  });
+}
+
+export function useTags() {
+  return useQuery({
+    queryKey: TAGS_KEY,
+    queryFn: () => api<TagSummary[]>("GET", "/api/admin/tags"),
   });
 }
 
@@ -30,12 +44,13 @@ export function useEquipment(id: number) {
 }
 
 /**
- * Catalog names show up on equipment and equipment counts show up in the
- * catalog, so any inventory change refreshes both.
+ * Catalog and tag names show up on equipment and equipment counts show up in
+ * the catalog and tag lists, so any inventory change refreshes them all.
  */
 export function invalidateInventory() {
   queryClient.invalidateQueries({ queryKey: CATALOG_KEY });
   queryClient.invalidateQueries({ queryKey: EQUIPMENT_KEY });
+  queryClient.invalidateQueries({ queryKey: TAGS_KEY });
 }
 
 /** Categories grouped by department, for a category picker. */

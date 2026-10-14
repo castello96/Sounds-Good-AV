@@ -1,5 +1,5 @@
 import { db, pool, withActor } from "./index";
-import { categories, departments } from "./schema";
+import { categories, departments, tags } from "./schema";
 
 // Starter catalog structure: category name and asset tag prefix. Safe to run
 // repeatedly; existing rows (matched by name or prefix) are left alone. Keep
@@ -37,6 +37,9 @@ const CATALOG: Record<string, [name: string, tagPrefix: string][]> = {
   ],
 };
 
+// Starter tags for what gear is used for. More can be added on the Tags page.
+const TAGS = ["Studio", "Broadcast", "Podcasting", "Live Sound"];
+
 async function main() {
   await withActor(null, async (tx) => {
     for (const [departmentName, categoryList] of Object.entries(CATALOG)) {
@@ -50,10 +53,14 @@ async function main() {
         .values(categoryList.map(([name, tagPrefix]) => ({ departmentId: department!.id, name, tagPrefix })))
         .onConflictDoNothing();
     }
+    await tx
+      .insert(tags)
+      .values(TAGS.map((name) => ({ name })))
+      .onConflictDoNothing();
   });
 
   const count = await db.$count(categories);
-  console.log(`Seed complete: ${count} categories`);
+  console.log(`Seed complete: ${count} categories, ${await db.$count(tags)} tags`);
 }
 
 main()

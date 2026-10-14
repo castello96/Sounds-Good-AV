@@ -12,10 +12,11 @@ import {
 } from "@shared/inventory";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Form } from "@/components/ui/form";
+import { Form, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { api } from "../api";
 import { categoryOptions, invalidateInventory, useCatalog, useEquipmentList } from "../inventory";
 import { SelectField } from "./SelectField";
+import { TagPicker } from "./TagPicker";
 import { TextField } from "./TextField";
 
 type FormInput = z.input<typeof equipmentSchema>;
@@ -48,8 +49,9 @@ export function EquipmentDialog({
           model: equipment.model,
           tracking: equipment.tracking,
           quantityOwned: equipment.quantityOwned,
+          tagIds: equipment.tags.map((t) => t.id),
         }
-      : { sku: "", brand: "", model: "", tracking: "units", quantityOwned: 0 },
+      : { sku: "", brand: "", model: "", tracking: "units", quantityOwned: 0, tagIds: [] },
   });
 
   // Fill in the SKU from the category prefix and model until someone types one.
@@ -134,6 +136,18 @@ export function EquipmentDialog({
               {tracking === "quantity" && (
                 <TextField control={form.control} name="quantityOwned" label="Quantity owned" type="number" />
               )}
+              <FormField
+                control={form.control}
+                name="tagIds"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Tags</FormLabel>
+                    <FormDescription>What it's used for, like Studio or Live Sound. Used for searching.</FormDescription>
+                    <TagPicker value={field.value ?? []} onChange={field.onChange} />
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={onClose}>
                   Cancel

@@ -11,6 +11,7 @@ import EquipmentPage from "./pages/EquipmentPage";
 import InventoryPage from "./pages/InventoryPage";
 import LoginPage from "./pages/LoginPage";
 import StaffPage from "./pages/StaffPage";
+import TagsPage from "./pages/TagsPage";
 import { useCurrentUser } from "./useAuth";
 
 /**
@@ -43,6 +44,7 @@ export default function AdminApp() {
         <Route path="/inventory" component={InventoryPage} />
         <Route path="/inventory/:id" component={EquipmentPage} />
         <Route path="/categories" component={CategoriesPage} />
+        <Route path="/tags" component={TagsPage} />
         <Route path="/staff" component={StaffPage} />
         <Route path="/account" component={AccountPage} />
         <Route>
