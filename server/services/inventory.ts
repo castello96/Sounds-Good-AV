@@ -1,4 +1,4 @@
-import { asc, count, eq, sql } from "drizzle-orm";
+import { and, asc, count, eq, inArray, notInArray, sql } from "drizzle-orm";
 import type { z } from "zod";
 import {
   formatAssetTag,
@@ -12,13 +12,16 @@ import {
   type equipmentSchema,
   type EquipmentSummary,
   type InventoryUnit,
+  type TagInput,
+  type TagRef,
+  type TagSummary,
   type UnitCounts,
   type UpdateCategoryInput,
   type updateEquipmentSchema,
   type updateUnitSchema,
 } from "@shared/inventory";
-import { db, withActor } from "../db";
-import { categories, departments, equipment, inventory } from "../db/schema";
+import { db, withActor, type Tx } from "../db";
+import { categories, departments, equipment, equipmentTags, inventory, tags } from "../db/schema";
 import { notFound, ServiceError, write } from "./errors";
 
 // Services take parsed input, after the schemas' trimming and uppercasing.
@@ -137,6 +140,93 @@ export async function deleteCategory(actorId: number, id: number) {
 }
 
 // ---------------------------------------------------------------------------
+// Tags
+// ---------------------------------------------------------------------------
+
+const DUPLICATE_TAG = "A tag with that name already exists";
+
+export async function listTags(): Promise<TagSummary[]> {
+  return db
+    .select({ id: tags.id, name: tags.name, equipmentCount: sql<number>`count(${equipmentTags.id})::int` })
+    .from(tags)
+    .leftJoin(equipmentTags, eq(equipmentTags.tagId, tags.id))
+    .groupBy(tags.id)
+    .orderBy(sql`lower(${tags.name})`);
+}
+
+export async function createTag(actorId: number, input: TagInput): Promise<TagRef> {
+  return write(
+    () =>
+      withActor(actorId, async (tx) => {
+        const [row] = await tx.insert(tags).values({ name: input.name }).returning();
+        return { id: row.id, name: row.name };
+      }),
+    { unique: DUPLICATE_TAG },
+  );
+}
+
+/** Renames a tag everywhere it's used. */
+export async function updateTag(actorId: number, id: number, input: TagInput): Promise<TagRef> {
+  return write(
+    () =>
+      withActor(actorId, async (tx) => {
+        const [row] = await tx.update(tags).set({ name: input.name }).where(eq(tags.id, id)).returning();
+        notFound(row, "Tag");
+        return { id: row.id, name: row.name };
+      }),
+    { unique: DUPLICATE_TAG },
+  );
+}
+
+/** Deletes a tag and takes it off any equipment that has it. */
+export async function deleteTag(actorId: number, id: number) {
+  await withActor(actorId, async (tx) => {
+    const [row] = await tx.delete(tags).where(eq(tags.id, id)).returning();
+    notFound(row, "Tag");
+  });
+}
+
+/** Tags on each piece of equipment, sorted by name. */
+async function tagsByEquipment(equipmentId?: number): Promise<Map<number, TagRef[]>> {
+  const rows = await db
+    .select({ equipmentId: equipmentTags.equipmentId, id: tags.id, name: tags.name })
+    .from(equipmentTags)
+    .innerJoin(tags, eq(tags.id, equipmentTags.tagId))
+    .where(equipmentId === undefined ? undefined : eq(equipmentTags.equipmentId, equipmentId))
+    .orderBy(sql`lower(${tags.name})`);
+
+  const byEquipment = new Map<number, TagRef[]>();
+  for (const { equipmentId: key, ...tag } of rows) {
+    byEquipment.set(key, [...(byEquipment.get(key) ?? []), tag]);
+  }
+  return byEquipment;
+}
+
+/** Makes the equipment's tags exactly `tagIds`, keeping rows that are already there. */
+async function setTags(tx: Tx, equipmentId: number, tagIds: number[]) {
+  if (tagIds.length > 0) {
+    const found = await tx.select({ id: tags.id }).from(tags).where(inArray(tags.id, tagIds));
+    if (found.length !== tagIds.length) {
+      throw new ServiceError(409, "One of those tags has been deleted. Refresh the page and try again.");
+    }
+  }
+  await tx
+    .delete(equipmentTags)
+    .where(
+      and(
+        eq(equipmentTags.equipmentId, equipmentId),
+        tagIds.length > 0 ? notInArray(equipmentTags.tagId, tagIds) : undefined,
+      ),
+    );
+  if (tagIds.length > 0) {
+    await tx
+      .insert(equipmentTags)
+      .values(tagIds.map((tagId) => ({ equipmentId, tagId })))
+      .onConflictDoNothing();
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Equipment
 // ---------------------------------------------------------------------------
 
@@ -182,23 +272,26 @@ async function unitCounts(equipmentId?: number): Promise<Map<number, UnitCounts>
 }
 
 export async function listEquipment(): Promise<EquipmentSummary[]> {
-  const [rows, counts] = await Promise.all([
+  const [rows, counts, tagMap] = await Promise.all([
     summaryQuery().orderBy(asc(departments.name), asc(categories.name), asc(equipment.brand), asc(equipment.model)),
     unitCounts(),
+    tagsByEquipment(),
   ]);
-  return rows.map((row) => ({ ...row, unitCounts: counts.get(row.id) ?? emptyCounts() }));
+  return rows.map((row) => ({ ...row, unitCounts: counts.get(row.id) ?? emptyCounts(), tags: tagMap.get(row.id) ?? [] }));
 }
 
 export async function getEquipment(id: number): Promise<EquipmentDetail> {
-  const [[row], counts, units] = await Promise.all([
+  const [[row], counts, tagMap, units] = await Promise.all([
     summaryQuery().where(eq(equipment.id, id)),
     unitCounts(id),
+    tagsByEquipment(id),
     db.select().from(inventory).where(eq(inventory.equipmentId, id)).orderBy(asc(inventory.assetTag)),
   ]);
   notFound(row, "Equipment");
   return {
     ...row,
     unitCounts: counts.get(id) ?? emptyCounts(),
+    tags: tagMap.get(id) ?? [],
     units: units.map(toUnit),
     nextAssetTag: row.tracking === "units" ? await nextAssetTag(row.tagPrefix) : null,
   };
@@ -222,11 +315,13 @@ const DUPLICATE_SKU = "Another piece of equipment already uses that SKU";
 const MISSING_CATEGORY = "That category no longer exists";
 
 export async function createEquipment(actorId: number, input: EquipmentData): Promise<EquipmentDetail> {
-  const values = { ...input, quantityOwned: input.tracking === "quantity" ? input.quantityOwned : 0 };
+  const { tagIds, ...fields } = input;
+  const values = { ...fields, quantityOwned: fields.tracking === "quantity" ? fields.quantityOwned : 0 };
   const id = await write(
     () =>
       withActor(actorId, async (tx) => {
         const [row] = await tx.insert(equipment).values(values).returning({ id: equipment.id });
+        await setTags(tx, row.id, tagIds);
         return row.id;
       }),
     { unique: DUPLICATE_SKU, foreignKey: MISSING_CATEGORY },
@@ -234,7 +329,9 @@ export async function createEquipment(actorId: number, input: EquipmentData): Pr
   return getEquipment(id);
 }
 
-export async function updateEquipment(actorId: number, id: number, input: UpdateEquipmentData): Promise<EquipmentDetail> {
+export async function updateEquipment(actorId: number, id: number, update: UpdateEquipmentData): Promise<EquipmentDetail> {
+  // Tags are only changed when given.
+  const { tagIds, ...input } = update;
   await write(
     () =>
       withActor(actorId, async (tx) => {
@@ -254,7 +351,8 @@ export async function updateEquipment(actorId: number, id: number, input: Update
         }
         // Equipment tracked by units counts its units, so it has no quantity of its own.
         const values = tracking === "units" ? { ...input, quantityOwned: 0 } : input;
-        await tx.update(equipment).set(values).where(eq(equipment.id, id));
+        if (Object.keys(input).length > 0) await tx.update(equipment).set(values).where(eq(equipment.id, id));
+        if (tagIds) await setTags(tx, id, tagIds);
       }),
     { unique: DUPLICATE_SKU, foreignKey: MISSING_CATEGORY },
   );

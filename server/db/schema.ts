@@ -14,6 +14,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   varchar,
 } from "drizzle-orm/pg-core";
 // Relative import: drizzle-kit loads this file without the tsconfig path aliases.
@@ -135,6 +136,34 @@ export const inventory = pgTable(
     // Target for the composite FK on booking_item_units.
     unique("inventory_id_equipment_id_unique").on(t.id, t.equipmentId),
   ],
+);
+
+// A label staff attach to equipment, like "Live Sound" or "Podcasting". One
+// flat list, managed in the portal. Names are unique ignoring case.
+export const tags = pgTable(
+  "tags",
+  {
+    id: id(),
+    name: text("name").notNull(),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("tags_name_lower_unique").on(sql`lower(${t.name})`)],
+);
+
+// Which tags are on which equipment. Has its own id so the audit log can point at it.
+export const equipmentTags = pgTable(
+  "equipment_tags",
+  {
+    id: id(),
+    equipmentId: integer("equipment_id")
+      .notNull()
+      .references(() => equipment.id, { onDelete: "cascade" }),
+    tagId: integer("tag_id")
+      .notNull()
+      .references(() => tags.id, { onDelete: "cascade" }),
+    ...timestamps,
+  },
+  (t) => [unique().on(t.equipmentId, t.tagId), index().on(t.tagId)],
 );
 
 // ---------------------------------------------------------------------------

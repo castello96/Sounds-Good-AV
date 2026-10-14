@@ -26,6 +26,7 @@ import { api } from "../api";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { EquipmentDialog } from "../components/EquipmentDialog";
 import { SelectField } from "../components/SelectField";
+import { TagBadges } from "../components/TagBadges";
 import { TextareaField } from "../components/TextareaField";
 import { TextField } from "../components/TextField";
 import { equipmentName, invalidateInventory, STATUS_BADGE, useEquipment } from "../inventory";
@@ -76,6 +77,7 @@ export default function EquipmentPage({ params }: { params: { id: string } }) {
             <span className="font-mono">{equipment.sku}</span> · {equipment.departmentName} / {equipment.categoryName}
           </p>
           <p className="text-sm text-muted-foreground">Tracking: {EQUIPMENT_TRACKING_LABELS[equipment.tracking]}</p>
+          <TagBadges tags={equipment.tags} className="mt-2" />
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => setDialog({ kind: "edit" })}>

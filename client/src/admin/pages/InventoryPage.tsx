@@ -7,26 +7,30 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { EquipmentDialog } from "../components/EquipmentDialog";
-import { availableCount, equipmentName, useCatalog, useEquipmentList } from "../inventory";
+import { TagBadges } from "../components/TagBadges";
+import { availableCount, equipmentName, useCatalog, useEquipmentList, useTags } from "../inventory";
 
 const ALL = "all";
 
 export default function InventoryPage() {
   const { data: equipment, isLoading } = useEquipmentList();
   const { data: catalog } = useCatalog();
+  const { data: tags } = useTags();
   const [, navigate] = useLocation();
   const [adding, setAdding] = useState(false);
   const [search, setSearch] = useState("");
   const [departmentId, setDepartmentId] = useState(ALL);
+  const [tagId, setTagId] = useState(ALL);
 
   const visible = useMemo(() => {
     const terms = search.toLowerCase().split(/\s+/).filter(Boolean);
     return (equipment ?? []).filter(
       (e) =>
         (departmentId === ALL || String(e.departmentId) === departmentId) &&
+        (tagId === ALL || e.tags.some((t) => String(t.id) === tagId)) &&
         terms.every((term) => searchText(e).includes(term)),
     );
-  }, [equipment, search, departmentId]);
+  }, [equipment, search, departmentId, tagId]);
 
   return (
     <div className="space-y-6">
@@ -46,7 +50,7 @@ export default function InventoryPage() {
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search brand, model, SKU or category"
+            placeholder="Search brand, model, SKU, category or tag"
             className="pl-8"
             data-testid="input-search"
           />
@@ -64,6 +68,21 @@ export default function InventoryPage() {
             ))}
           </SelectContent>
         </Select>
+        {!!tags?.length && (
+          <Select value={tagId} onValueChange={setTagId}>
+            <SelectTrigger className="sm:w-48" aria-label="Tag">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>All tags</SelectItem>
+              {tags.map((t) => (
+                <SelectItem key={t.id} value={String(t.id)}>
+                  {t.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </div>
 
       <div className="rounded-md border">
@@ -100,6 +119,7 @@ export default function InventoryPage() {
                   <Link href={`/inventory/${e.id}`} onClick={(event) => event.stopPropagation()}>
                     {equipmentName(e)}
                   </Link>
+                  <TagBadges tags={e.tags} className="mt-1" />
                 </TableCell>
                 <TableCell className="font-mono text-sm">{e.sku}</TableCell>
                 <TableCell>
@@ -126,4 +146,4 @@ export default function InventoryPage() {
 }
 
 const searchText = (e: EquipmentSummary) =>
-  [e.brand, e.model, e.sku, e.categoryName, e.departmentName].join(" ").toLowerCase();
+  [e.brand, e.model, e.sku, e.categoryName, e.departmentName, ...e.tags.map((t) => t.name)].join(" ").toLowerCase();

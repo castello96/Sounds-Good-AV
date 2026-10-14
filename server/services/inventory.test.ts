@@ -1,5 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { createCategorySchema, createUnitsSchema, equipmentSchema, sequentialAssetTags, suggestSku } from "@shared/inventory";
+import {
+  createCategorySchema,
+  createUnitsSchema,
+  equipmentSchema,
+  sequentialAssetTags,
+  suggestSku,
+  tagSchema,
+  updateEquipmentSchema,
+} from "@shared/inventory";
 import { resetDatabase } from "../../test/db";
 import { db } from "../db";
 import { auditEvents, bookingItems, bookingItemUnits, bookings, customers } from "../db/schema";
@@ -183,6 +191,79 @@ describe("equipment", () => {
 
   it("answers 404 for missing equipment", async () => {
     await expect(inventory.getEquipment(999)).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+describe("tags", () => {
+  const tag = (name: string) => inventory.createTag(actorId, tagSchema.parse({ name }));
+  const names = (e: { tags: { name: string }[] }) => e.tags.map((t) => t.name);
+
+  it("keeps names unique ignoring case", async () => {
+    await tag("Live Sound");
+    await expect(tag(" live sound ")).rejects.toMatchObject({ status: 409, message: "A tag with that name already exists" });
+  });
+
+  it("sets, replaces and keeps tags on equipment", async () => {
+    const { category, sm58 } = await seedEquipment();
+    const [studio, podcasting, broadcast] = [await tag("Studio"), await tag("podcasting"), await tag("Broadcast")];
+
+    const sm7b = await inventory.createEquipment(
+      actorId,
+      equipmentSchema.parse({
+        categoryId: category.id,
+        sku: "MIC-SM7B",
+        brand: "Shure",
+        model: "SM7B",
+        tagIds: [studio.id, podcasting.id, studio.id],
+      }),
+    );
+    // Sorted by name ignoring case, with the duplicate dropped.
+    expect(names(sm7b)).toEqual(["podcasting", "Studio"]);
+    expect(sm58.tags).toEqual([]);
+
+    const swapped = await inventory.updateEquipment(
+      actorId,
+      sm7b.id,
+      updateEquipmentSchema.parse({ tagIds: [broadcast.id, studio.id] }),
+    );
+    expect(names(swapped)).toEqual(["Broadcast", "Studio"]);
+
+    // Leaving tagIds out of an update leaves the tags alone.
+    const renamed = await inventory.updateEquipment(actorId, sm7b.id, updateEquipmentSchema.parse({ model: "SM7dB" }));
+    expect(renamed.model).toBe("SM7dB");
+    expect(names(renamed)).toEqual(["Broadcast", "Studio"]);
+
+    const cleared = await inventory.updateEquipment(actorId, sm7b.id, updateEquipmentSchema.parse({ tagIds: [] }));
+    expect(cleared.tags).toEqual([]);
+  });
+
+  it("counts, renames and deletes tags everywhere they're used", async () => {
+    const { category } = await seedEquipment();
+    const live = await tag("Live");
+    const fields = { categoryId: category.id, brand: "Shure", tagIds: [live.id] };
+    await inventory.createEquipment(actorId, equipmentSchema.parse({ ...fields, sku: "A", model: "Beta 58A" }));
+    const sm57 = await inventory.createEquipment(actorId, equipmentSchema.parse({ ...fields, sku: "B", model: "SM57" }));
+    expect(await inventory.listTags()).toEqual([{ id: live.id, name: "Live", equipmentCount: 2 }]);
+
+    await inventory.updateTag(actorId, live.id, tagSchema.parse({ name: "Live Sound" }));
+    expect(names(await inventory.getEquipment(sm57.id))).toEqual(["Live Sound"]);
+
+    await inventory.deleteTag(actorId, live.id);
+    expect((await inventory.getEquipment(sm57.id)).tags).toEqual([]);
+    expect((await inventory.listEquipment()).every((e) => e.tags.length === 0)).toBe(true);
+  });
+
+  it("rejects a tag that no longer exists and records tag changes", async () => {
+    const { sm58 } = await seedEquipment();
+    await expect(
+      inventory.updateEquipment(actorId, sm58.id, updateEquipmentSchema.parse({ tagIds: [999] })),
+    ).rejects.toMatchObject({ status: 409 });
+
+    const live = await tag("Live");
+    await inventory.updateEquipment(actorId, sm58.id, updateEquipmentSchema.parse({ tagIds: [live.id] }));
+    const events = await db.select().from(auditEvents);
+    expect(events).toContainEqual(expect.objectContaining({ entityType: "tags", userId: actorId }));
+    expect(events).toContainEqual(expect.objectContaining({ entityType: "equipment_tags", userId: actorId }));
   });
 });
 
