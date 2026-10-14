@@ -272,6 +272,11 @@ export const bookingItems = pgTable(
       .notNull()
       .references(() => equipment.id),
     quantity: integer("quantity").notNull(),
+    // Pack-out counts for gear tracked by quantity. Units with asset tags are
+    // counted from booking_item_units instead, and these stay 0.
+    quantityOut: integer("quantity_out").notNull().default(0),
+    quantityReturned: integer("quantity_returned").notNull().default(0),
+    quantityLost: integer("quantity_lost").notNull().default(0),
     ...timestamps,
   },
   (t) => [
@@ -280,10 +285,18 @@ export const bookingItems = pgTable(
     unique("booking_items_id_equipment_id_unique").on(t.id, t.equipmentId),
     index().on(t.equipmentId),
     check("booking_items_quantity_positive", sql`${t.quantity} > 0`),
+    check(
+      "booking_items_counts_valid",
+      sql`${t.quantityReturned} >= 0 AND ${t.quantityLost} >= 0
+        AND ${t.quantityReturned} + ${t.quantityLost} <= ${t.quantityOut}
+        AND ${t.quantityOut} <= ${t.quantity}`,
+    ),
   ],
 );
 
-// Physical assignment of units, recorded at pack time.
+// Physical assignment of units, recorded at pack time. Packing and leaving are
+// one step for now, so checked_out_at is set when the unit is packed. A unit
+// is still out until it's returned or marked lost.
 export const bookingItemUnits = pgTable(
   "booking_item_units",
   {
@@ -294,6 +307,7 @@ export const bookingItemUnits = pgTable(
     equipmentId: integer("equipment_id").notNull(),
     checkedOutAt: timestamptz("checked_out_at"),
     returnedAt: timestamptz("returned_at"),
+    lostAt: timestamptz("lost_at"),
     returnNotes: text("return_notes"),
     ...timestamps,
   },
@@ -308,10 +322,15 @@ export const bookingItemUnits = pgTable(
     }),
     unique().on(t.bookingItemId, t.inventoryId),
     index().on(t.inventoryId),
+    // A unit can only be out on one booking at a time.
+    uniqueIndex("booking_item_units_one_open_per_unit")
+      .on(t.inventoryId)
+      .where(sql`${t.returnedAt} IS NULL AND ${t.lostAt} IS NULL`),
     check(
       "booking_item_units_return_after_checkout",
       sql`${t.returnedAt} IS NULL OR (${t.checkedOutAt} IS NOT NULL AND ${t.returnedAt} >= ${t.checkedOutAt})`,
     ),
+    check("booking_item_units_returned_or_lost", sql`${t.returnedAt} IS NULL OR ${t.lostAt} IS NULL`),
   ],
 );
 

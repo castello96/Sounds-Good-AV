@@ -8,9 +8,11 @@ import {
   createBookingSchema,
   customerSchema,
 } from "@shared/bookings";
+import { itemCountsSchema, lostUnitSchema, packUnitSchema, returnUnitSchema } from "@shared/packout";
 import { paymentSchema } from "@shared/payments";
 import { handle, idParam } from "./http";
 import * as bookings from "./services/bookings";
+import * as packout from "./services/packout";
 import * as payments from "./services/payments";
 
 const searchSchema = z.object({ q: z.string().max(200).default("") });
@@ -29,6 +31,13 @@ export function bookingRouter() {
     "/bookings/counts",
     handle(async (_req, res) => {
       res.json(await bookings.bookingCounts());
+    }),
+  );
+  // Before /bookings/:id, so "out" isn't taken for an id.
+  router.get(
+    "/bookings/out",
+    handle(async (_req, res) => {
+      res.json(await bookings.listOutNow());
     }),
   );
   router.post(
@@ -74,6 +83,40 @@ export function bookingRouter() {
     "/bookings/:id/items/:equipmentId",
     handle(async (req, res) => {
       res.json(await bookings.removeBookingItem(req.user!.id, idParam(req), idParam(req, "equipmentId")));
+    }),
+  );
+
+  router.post(
+    "/bookings/:id/pack",
+    handle(async (req, res) => {
+      const { assetTag } = packUnitSchema.parse(req.body);
+      res.json(await packout.packUnit(req.user!.id, idParam(req), assetTag));
+    }),
+  );
+  router.delete(
+    "/bookings/:id/units/:unitId",
+    handle(async (req, res) => {
+      res.json(await packout.unpackUnit(req.user!.id, idParam(req), idParam(req, "unitId")));
+    }),
+  );
+  router.post(
+    "/bookings/:id/return",
+    handle(async (req, res) => {
+      res.json(await packout.returnUnit(req.user!.id, idParam(req), returnUnitSchema.parse(req.body)));
+    }),
+  );
+  router.post(
+    "/bookings/:id/units/:unitId/lost",
+    handle(async (req, res) => {
+      const data = lostUnitSchema.parse(req.body);
+      res.json(await packout.markUnitLost(req.user!.id, idParam(req), idParam(req, "unitId"), data));
+    }),
+  );
+  router.patch(
+    "/bookings/:id/items/:equipmentId/counts",
+    handle(async (req, res) => {
+      const data = itemCountsSchema.parse(req.body);
+      res.json(await packout.setItemCounts(req.user!.id, idParam(req), idParam(req, "equipmentId"), data));
     }),
   );
 

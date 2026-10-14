@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Link } from "wouter";
-import { AlertTriangle, ArrowLeft, MoreHorizontal, Pencil, Plus } from "lucide-react";
+import { AlertTriangle, ArrowLeft, MoreHorizontal, PackageCheck, Pencil, Plus } from "lucide-react";
 import {
   BOOKING_STATUS_LABELS,
   BOOKING_TRANSITIONS,
@@ -21,7 +21,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "../api";
-import { customerName, invalidateBookings, STATUS_BADGE, useBooking } from "../bookings";
+import { customerName, invalidateBookings, isOverdue, STATUS_BADGE, useBooking } from "../bookings";
 import { CustomerDialog, DELIVERY_LABELS, DetailsDialog, ItemDialog } from "../components/BookingDialogs";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { PaymentDialog } from "../components/PaymentDialog";
@@ -38,10 +38,10 @@ type DialogState =
   | { kind: "removePayment"; payment: Payment }
   | null;
 
-// Completing a booking comes with returns in a later phase.
 const ACTIONS: { status: BookingStatus; label: string }[] = [
   { status: "quoted", label: "Mark quoted" },
   { status: "confirmed", label: "Confirm" },
+  { status: "completed", label: "Mark completed" },
 ];
 
 export default function BookingPage({ params }: { params: { id: string } }) {
@@ -69,6 +69,7 @@ export default function BookingPage({ params }: { params: { id: string } }) {
     itemCount: booking.items.length,
   });
   const shortItems = booking.items.filter((i) => i.quantity > i.availability.available);
+  const packed = booking.items.some((i) => i.out > 0);
 
   const request = (method: string, url: string, body: unknown, failure: string) => {
     setBusy(true);
@@ -102,26 +103,47 @@ export default function BookingPage({ params }: { params: { id: string } }) {
             {EVENT_TYPE_LABELS[booking.eventType]} · {formatRange(booking.eventStartAt, booking.eventEndAt)}
           </p>
         </div>
-        {editable && (
-          <div className="flex flex-wrap gap-2">
-            {ACTIONS.filter((a) => BOOKING_TRANSITIONS[booking.status].includes(a.status)).map((a) => (
-              <Button
-                key={a.status}
-                variant={a.status === "confirmed" ? "default" : "outline"}
-                disabled={busy}
-                onClick={() => changeStatus(a.status)}
-                data-testid={`button-status-${a.status}`}
-              >
-                {a.label}
-              </Button>
-            ))}
-            <Button variant="outline" disabled={busy} onClick={() => setDialog({ kind: "cancel" })} data-testid="button-cancel-booking">
-              Cancel booking
+        <div className="flex flex-wrap gap-2">
+          {(booking.status === "confirmed" || packed) && (
+            <Button variant={booking.status === "confirmed" ? "default" : "outline"} asChild>
+              <Link href={`/bookings/${id}/pack`} data-testid="link-pack">
+                <PackageCheck /> {booking.status === "confirmed" ? "Pack and return" : "Pack list"}
+              </Link>
             </Button>
-          </div>
-        )}
+          )}
+          {editable && (
+            <>
+              {ACTIONS.filter((a) => BOOKING_TRANSITIONS[booking.status].includes(a.status)).map((a) => (
+                <Button
+                  key={a.status}
+                  variant={a.status === "confirmed" ? "default" : "outline"}
+                  // Gear has to be back, or marked lost, first.
+                  disabled={busy || (a.status === "completed" && booking.gearOut > 0)}
+                  onClick={() => changeStatus(a.status)}
+                  data-testid={`button-status-${a.status}`}
+                >
+                  {a.label}
+                </Button>
+              ))}
+              <Button
+                variant="outline"
+                disabled={busy || booking.gearOut > 0}
+                onClick={() => setDialog({ kind: "cancel" })}
+                data-testid="button-cancel-booking"
+              >
+                Cancel booking
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
+      {booking.status === "confirmed" && booking.gearOut > 0 && (
+        <Notice>
+          {booking.gearOut} still out{isOverdue(booking) ? " and overdue" : ""}. Check the gear in, or mark what's missing
+          lost, before completing or cancelling.
+        </Notice>
+      )}
       {editable && booking.status !== "confirmed" && missing.length > 0 && (
         <Notice>Before quoting, add the {missing.join(", ")}.</Notice>
       )}
@@ -232,13 +254,14 @@ export default function BookingPage({ params }: { params: { id: string } }) {
                 <TableHead>SKU</TableHead>
                 <TableHead className="text-right">Quantity</TableHead>
                 <TableHead className="text-right">Free for these times</TableHead>
+                {packed && <TableHead className="text-right">Out and back</TableHead>}
                 {editable && <TableHead className="w-12" />}
               </TableRow>
             </TableHeader>
             <TableBody>
               {booking.items.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-muted-foreground">
+                  <TableCell colSpan={6} className="text-muted-foreground">
                     No equipment yet.
                   </TableCell>
                 </TableRow>
@@ -256,6 +279,18 @@ export default function BookingPage({ params }: { params: { id: string } }) {
                       {short && <AlertTriangle className="mr-1 inline h-4 w-4" />}
                       {Math.max(0, item.availability.available)} of {item.availability.capacity}
                     </TableCell>
+                    {packed && (
+                      <TableCell className="text-right text-sm">
+                        {item.out === 0 ? (
+                          <span className="text-muted-foreground">Not packed</span>
+                        ) : (
+                          <>
+                            {item.returned} of {item.out} back
+                            {item.lost > 0 && <span className="text-destructive">, {item.lost} lost</span>}
+                          </>
+                        )}
+                      </TableCell>
+                    )}
                     {editable && (
                       <TableCell>
                         <DropdownMenu>
