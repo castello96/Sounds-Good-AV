@@ -15,13 +15,24 @@ import {
   type createBookingSchema,
   type Customer,
   type customerSchema,
+  type PackedUnit,
   type Venue,
 } from "@shared/bookings";
 import type { Payment } from "@shared/payments";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { db, withActor, type Db, type Tx } from "../db";
-import { addresses, bookingItems, bookings, customers, equipment, inventory, payments } from "../db/schema";
+import {
+  addresses,
+  bookingItems,
+  bookingItemUnits,
+  bookings,
+  customers,
+  equipment,
+  inventory,
+  payments,
+} from "../db/schema";
 import { notFound, ServiceError, write } from "./errors";
+import { openIssueCounts } from "./gearIssues";
 import { localToUtc } from "./time";
 
 type CreateBookingData = z.output<typeof createBookingSchema>;
@@ -104,9 +115,35 @@ const windowOf = (row: BookingRow): Window => ({
 });
 
 /**
+ * A column with its table name, for the outer side of a correlated subquery.
+ * Drizzle leaves the table name off in single-table selects, where an inner
+ * table with the same column name would capture it.
+ */
+const outer = (column: AnyPgColumn) => sql`${column.table}.${sql.identifier(column.name)}`;
+
+// Pack-out counts for one booking_items row, combining units packed by tag
+// with the hand-entered counts for gear tracked by quantity.
+const unitCount = (condition: SQL) =>
+  sql<number>`(select count(*)::int from ${bookingItemUnits}
+    where ${bookingItemUnits.bookingItemId} = ${outer(bookingItems.id)} and ${condition})`;
+const { returnedAt, lostAt } = bookingItemUnits;
+const itemReturned = sql<number>`(${bookingItems.quantityReturned} + ${unitCount(sql`${returnedAt} is not null`)})`;
+const itemLost = sql<number>`(${bookingItems.quantityLost} + ${unitCount(sql`${lostAt} is not null`)})`;
+const itemDamaged = sql<number>`(${bookingItems.quantityDamaged} + ${unitCount(sql`${bookingItemUnits.damaged}`)})`;
+// Gear on an item that went out and hasn't come back or been marked lost.
+const itemStillOut = sql<number>`(${bookingItems.quantityOut} - ${bookingItems.quantityReturned}
+  - ${bookingItems.quantityLost} + ${unitCount(sql`${returnedAt} is null and ${lostAt} is null`)})`;
+
+/**
  * How many of each piece of equipment are free during a window. Only
  * confirmed bookings hold gear; quotes and inquiries don't. Windows that only
  * touch (one returns at 10:00, the next leaves at 10:00) don't overlap.
+ *
+ * A confirmed booking that overlaps holds what it needs, less anything that
+ * already came back or was lost. Lost and damaged gear tracked by quantity is
+ * held by its lost and repair records instead, and units by their status.
+ * Gear still out on an overdue booking is held too, since nobody knows when
+ * it'll be back, unless the window is already over.
  */
 async function computeAvailability(
   q: Db | Tx,
@@ -117,8 +154,11 @@ async function computeAvailability(
   if (equipmentIds?.length === 0) return new Map();
   const onlyEquipment = (column: AnyPgColumn) =>
     equipmentIds ? inArray(column, equipmentIds) : undefined;
+  // Confirmed bookings always have out and back times.
+  const overlaps = and(lt(bookings.outAt, window.end), gt(bookings.backAt, window.start))!;
+  const now = new Date();
 
-  const [equipmentRows, activeUnits, reservedRows] = await Promise.all([
+  const [equipmentRows, activeUnits, reservedRows, issues] = await Promise.all([
     q
       .select({ id: equipment.id, tracking: equipment.tracking, quantityOwned: equipment.quantityOwned })
       .from(equipment)
@@ -129,27 +169,34 @@ async function computeAvailability(
       .where(and(eq(inventory.status, "active"), onlyEquipment(inventory.equipmentId)))
       .groupBy(inventory.equipmentId),
     q
-      .select({ equipmentId: bookingItems.equipmentId, n: sql<number>`sum(${bookingItems.quantity})::int` })
+      .select({
+        equipmentId: bookingItems.equipmentId,
+        n: sql<number>`sum(case when ${overlaps} then ${bookingItems.quantity} - ${itemReturned} - ${itemLost}
+          else ${itemStillOut} end)::int`,
+      })
       .from(bookingItems)
       .innerJoin(bookings, eq(bookings.id, bookingItems.bookingId))
       .where(
         and(
           eq(bookings.status, "confirmed"),
           excludeBookingId === null ? undefined : ne(bookings.id, excludeBookingId),
-          // Confirmed bookings always have out and back times.
-          lt(bookings.outAt, window.end),
-          gt(bookings.backAt, window.start),
+          window.end > now ? or(overlaps, lt(bookings.backAt, now)) : overlaps,
           onlyEquipment(bookingItems.equipmentId),
         ),
       )
       .groupBy(bookingItems.equipmentId),
+    openIssueCounts(q, equipmentIds),
   ]);
 
   const unitsById = new Map(activeUnits.map((r) => [r.equipmentId, r.n]));
   const reservedById = new Map(reservedRows.map((r) => [r.equipmentId, r.n]));
   return new Map(
     equipmentRows.map((e) => {
-      const capacity = e.tracking === "quantity" ? e.quantityOwned : (unitsById.get(e.id) ?? 0);
+      const outOfService = issues.get(e.id);
+      const capacity =
+        e.tracking === "quantity"
+          ? e.quantityOwned - (outOfService ? outOfService.repair + outOfService.lost : 0)
+          : (unitsById.get(e.id) ?? 0);
       const reserved = reservedById.get(e.id) ?? 0;
       return [e.id, { equipmentId: e.id, capacity, reserved, available: capacity - reserved }];
     }),
@@ -203,10 +250,12 @@ export async function bookingAvailability(id: number): Promise<Availability[]> {
 
 const itemCount = sql<number>`(select count(*)::int from ${bookingItems} where ${bookingItems.bookingId} = ${bookings.id})`;
 const paidCents = sql<number>`(select coalesce(sum(${payments.amountCents}), 0)::int from ${payments} where ${payments.bookingId} = ${bookings.id})`;
+const gearOut = sql<number>`(select coalesce(sum(${itemStillOut}), 0)::int from ${bookingItems}
+  where ${bookingItems.bookingId} = ${outer(bookings.id)})`;
 
 function summaryQuery() {
   return db
-    .select({ booking: bookings, customer: customerColumns, itemCount, paidCents })
+    .select({ booking: bookings, customer: customerColumns, itemCount, paidCents, gearOut })
     .from(bookings)
     .innerJoin(customers, eq(customers.id, bookings.customerId));
 }
@@ -216,6 +265,7 @@ const toSummary = (r: {
   customer: BookingSummary["customer"];
   itemCount: number;
   paidCents: number;
+  gearOut: number;
 }): BookingSummary => ({
   id: r.booking.id,
   status: r.booking.status,
@@ -228,6 +278,7 @@ const toSummary = (r: {
   totalPriceCents: r.booking.totalPriceCents,
   paidCents: r.paidCents,
   itemCount: r.itemCount,
+  gearOut: r.gearOut,
   createdAt: iso(r.booking.createdAt),
 });
 
@@ -249,6 +300,14 @@ export async function listBookings(status?: BookingStatus): Promise<BookingSumma
   return rows.map(toSummary);
 }
 
+/** Confirmed bookings with gear still out, the one due back first on top. */
+export async function listOutNow(): Promise<BookingSummary[]> {
+  const rows = await summaryQuery()
+    .where(and(eq(bookings.status, "confirmed"), gt(gearOut, 0)))
+    .orderBy(asc(bookings.backAt), asc(bookings.id));
+  return rows.map(toSummary);
+}
+
 export async function bookingCounts(): Promise<BookingCounts> {
   const rows = await db.select({ status: bookings.status, n: count() }).from(bookings).groupBy(bookings.status);
   const counts = Object.fromEntries(BOOKING_STATUSES.map((s) => [s, 0])) as BookingCounts;
@@ -258,7 +317,7 @@ export async function bookingCounts(): Promise<BookingCounts> {
 
 export async function getBooking(id: number): Promise<BookingDetail> {
   const [row] = await db
-    .select({ booking: bookings, customer: customers, address: addresses, itemCount, paidCents })
+    .select({ booking: bookings, customer: customers, address: addresses, itemCount, paidCents, gearOut })
     .from(bookings)
     .innerJoin(customers, eq(customers.id, bookings.customerId))
     .leftJoin(addresses, eq(addresses.id, bookings.addressId))
@@ -268,17 +327,45 @@ export async function getBooking(id: number): Promise<BookingDetail> {
 
   const items = await db
     .select({
+      id: bookingItems.id,
       equipmentId: bookingItems.equipmentId,
       quantity: bookingItems.quantity,
       sku: equipment.sku,
       brand: equipment.brand,
       model: equipment.model,
       tracking: equipment.tracking,
+      quantityOut: bookingItems.quantityOut,
+      returned: itemReturned,
+      damaged: itemDamaged,
+      lost: itemLost,
     })
     .from(bookingItems)
     .innerJoin(equipment, eq(equipment.id, bookingItems.equipmentId))
     .where(eq(bookingItems.bookingId, id))
     .orderBy(asc(equipment.brand), asc(equipment.model));
+
+  const unitRows = await db
+    .select({ unit: bookingItemUnits, assetTag: inventory.assetTag })
+    .from(bookingItemUnits)
+    .innerJoin(bookingItems, eq(bookingItems.id, bookingItemUnits.bookingItemId))
+    .innerJoin(inventory, eq(inventory.id, bookingItemUnits.inventoryId))
+    .where(eq(bookingItems.bookingId, id))
+    .orderBy(asc(bookingItemUnits.checkedOutAt), asc(bookingItemUnits.id));
+  const unitsByItem = new Map<number, PackedUnit[]>();
+  for (const { unit, assetTag } of unitRows) {
+    const list = unitsByItem.get(unit.bookingItemId) ?? [];
+    list.push({
+      id: unit.id,
+      inventoryId: unit.inventoryId,
+      assetTag,
+      checkedOutAt: isoOrNull(unit.checkedOutAt),
+      returnedAt: isoOrNull(unit.returnedAt),
+      lostAt: isoOrNull(unit.lostAt),
+      damaged: unit.damaged,
+      returnNotes: unit.returnNotes,
+    });
+    unitsByItem.set(unit.bookingItemId, list);
+  }
 
   const paymentRows = await db
     .select()
@@ -295,7 +382,7 @@ export async function getBooking(id: number): Promise<BookingDetail> {
   );
 
   return {
-    ...toSummary({ booking, customer: row.customer, itemCount: row.itemCount, paidCents: row.paidCents }),
+    ...toSummary({ ...row, customer: row.customer }),
     customer: toCustomer(row.customer),
     venue: address
       ? {
@@ -312,7 +399,15 @@ export async function getBooking(id: number): Promise<BookingDetail> {
     notes: booking.notes,
     onsiteContactName: booking.onsiteContactName,
     onsiteContactPhone: booking.onsiteContactPhone,
-    items: items.map((i) => ({ ...i, availability: availability.get(i.equipmentId)! })),
+    items: items.map(({ id: itemId, quantityOut, ...i }) => {
+      const units = unitsByItem.get(itemId) ?? [];
+      return {
+        ...i,
+        out: quantityOut + units.length,
+        units,
+        availability: availability.get(i.equipmentId)!,
+      };
+    }),
     payments: paymentRows.map(toPayment),
     window: { start: iso(window.start), end: iso(window.end) },
   };
@@ -466,6 +561,13 @@ export async function updateBookingDetails(actorId: number, id: number, data: Bo
   return getBooking(id);
 }
 
+/** Units packed by tag for an item, whether or not they came back. */
+export const itemUnitsPacked = unitCount(sql`true`);
+// Everything that has gone out on an item, whether or not it came back.
+const itemPacked = sql<number>`(${bookingItems.quantityOut} + ${itemUnitsPacked})`;
+
+const PACKED_ITEM = "Gear has been packed for this item, so it can't be removed. Unpack it first.";
+
 /** Adds equipment to a booking, or changes how many it needs. */
 export async function setBookingItem(actorId: number, id: number, equipmentId: number, quantity: number) {
   await write(
@@ -474,9 +576,13 @@ export async function setBookingItem(actorId: number, id: number, equipmentId: n
         const row = await lockBooking(tx, id);
         assertEditable(row);
         const [previous] = await tx
-          .select({ quantity: bookingItems.quantity })
+          .select({ quantity: bookingItems.quantity, packed: itemPacked })
           .from(bookingItems)
           .where(and(eq(bookingItems.bookingId, id), eq(bookingItems.equipmentId, equipmentId)));
+        if (previous && quantity < previous.packed) {
+          const message = `${previous.packed} have already been packed. Unpack some before lowering the quantity.`;
+          throw new ServiceError(409, message);
+        }
         await tx
           .insert(bookingItems)
           .values({ bookingId: id, equipmentId, quantity })
@@ -494,6 +600,11 @@ export async function removeBookingItem(actorId: number, id: number, equipmentId
       withActor(actorId, async (tx) => {
         const row = await lockBooking(tx, id);
         assertEditable(row);
+        const [packed] = await tx
+          .select({ n: itemPacked })
+          .from(bookingItems)
+          .where(and(eq(bookingItems.bookingId, id), eq(bookingItems.equipmentId, equipmentId)));
+        if (packed && packed.n > 0) throw new ServiceError(409, PACKED_ITEM);
         const [removed] = await tx
           .delete(bookingItems)
           .where(and(eq(bookingItems.bookingId, id), eq(bookingItems.equipmentId, equipmentId)))
@@ -503,14 +614,14 @@ export async function removeBookingItem(actorId: number, id: number, equipmentId
           throw new ServiceError(409, `A ${row.status} booking needs at least one item. Add another before removing this one.`);
         }
       }),
-    { foreignKey: "Units have been packed for this item, so it can't be removed." },
+    { foreignKey: PACKED_ITEM },
   );
   return getBooking(id);
 }
 
 /**
- * Moves a booking along: quote it, confirm it (which holds its gear), or
- * cancel it. Confirming checks availability and fails with what's short.
+ * Moves a booking along: quote it, confirm it (which holds its gear), complete
+ * it or cancel it. Confirming checks availability and fails with what's short.
  */
 export async function changeBookingStatus(actorId: number, id: number, status: BookingStatus) {
   await withActor(actorId, async (tx) => {
@@ -527,6 +638,15 @@ export async function changeBookingStatus(actorId: number, id: number, status: B
       if (missing.length > 0) {
         const verb = status === "quoted" ? "quoting" : "confirming";
         throw new ServiceError(409, `Before ${verb}, add the ${missing.join(", ")}.`);
+      }
+    }
+
+    // Gear has to be back, or written off as lost, before a booking is closed out.
+    if (status === "completed" || status === "cancelled") {
+      const [{ out }] = await tx.select({ out: gearOut }).from(bookings).where(eq(bookings.id, id));
+      if (out > 0) {
+        const verb = status === "completed" ? "completing" : "cancelling";
+        throw new ServiceError(409, `${out} still out. Before ${verb}, check the gear in or mark it lost.`);
       }
     }
 

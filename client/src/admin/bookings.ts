@@ -27,6 +27,14 @@ export function useBookingCounts() {
   });
 }
 
+/** Confirmed bookings with gear still out. */
+export function useOutNow() {
+  return useQuery({
+    queryKey: [...BOOKINGS_KEY, "out"],
+    queryFn: () => api<BookingSummary[]>("GET", "/api/admin/bookings/out"),
+  });
+}
+
 export function useBooking(id: number) {
   return useQuery({
     queryKey: [...BOOKINGS_KEY, id],
@@ -62,5 +70,8 @@ export const STATUS_BADGE: Record<BookingStatus, "default" | "secondary" | "outl
   completed: "outline",
   cancelled: "outline",
 };
+
+/** Gear is still out past the time it was due back. */
+export const isOverdue = (b: BookingSummary) => b.gearOut > 0 && b.backAt !== null && new Date(b.backAt) < new Date();
 
 export const customerName = (c: { firstName: string; lastName: string }) => `${c.firstName} ${c.lastName}`;

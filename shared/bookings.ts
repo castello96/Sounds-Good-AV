@@ -96,6 +96,8 @@ export interface BookingSummary {
   // Payments less refunds.
   paidCents: number;
   itemCount: number;
+  // Packed gear that hasn't come back or been marked lost.
+  gearOut: number;
   createdAt: string;
 }
 
@@ -111,6 +113,19 @@ export interface Availability {
   available: number;
 }
 
+/** A unit packed for a booking. Out until it's returned or marked lost. */
+export interface PackedUnit {
+  id: number;
+  inventoryId: number;
+  assetTag: string;
+  checkedOutAt: string | null;
+  returnedAt: string | null;
+  lostAt: string | null;
+  // Came back needing repair.
+  damaged: boolean;
+  returnNotes: string | null;
+}
+
 export interface BookingItem {
   equipmentId: number;
   sku: string;
@@ -118,6 +133,15 @@ export interface BookingItem {
   model: string;
   tracking: EquipmentTracking;
   quantity: number;
+  // How many went out, came back and were lost. Counted from `units` for
+  // gear tracked by unit, entered by hand for gear tracked by quantity.
+  // Damaged gear came back needing repair, and is part of `returned`.
+  out: number;
+  returned: number;
+  damaged: number;
+  lost: number;
+  // Oldest first. Always empty for gear tracked by quantity.
+  units: PackedUnit[];
   availability: Availability;
 }
 

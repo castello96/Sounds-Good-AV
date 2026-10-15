@@ -6,6 +6,7 @@ import type {
   InventoryStatus,
   TagSummary,
 } from "@shared/inventory";
+import type { OutOfServiceEntry } from "@shared/gearIssues";
 import { queryClient } from "@/lib/queryClient";
 import { api } from "./api";
 import type { SelectOptionGroup } from "./components/SelectField";
@@ -14,6 +15,7 @@ export const CATALOG_KEY = ["/api/admin/catalog"];
 // Prefix shared by the list and every detail query.
 export const EQUIPMENT_KEY = ["/api/admin/equipment"];
 export const TAGS_KEY = ["/api/admin/tags"];
+export const OUT_OF_SERVICE_KEY = ["/api/admin/out-of-service"];
 
 export function useCatalog() {
   return useQuery({
@@ -43,6 +45,14 @@ export function useEquipment(id: number) {
   });
 }
 
+/** Everything in repair or lost right now. */
+export function useOutOfService() {
+  return useQuery({
+    queryKey: OUT_OF_SERVICE_KEY,
+    queryFn: () => api<OutOfServiceEntry[]>("GET", "/api/admin/out-of-service"),
+  });
+}
+
 /**
  * Catalog and tag names show up on equipment and equipment counts show up in
  * the catalog and tag lists, so any inventory change refreshes them all.
@@ -51,6 +61,7 @@ export function invalidateInventory() {
   queryClient.invalidateQueries({ queryKey: CATALOG_KEY });
   queryClient.invalidateQueries({ queryKey: EQUIPMENT_KEY });
   queryClient.invalidateQueries({ queryKey: TAGS_KEY });
+  queryClient.invalidateQueries({ queryKey: OUT_OF_SERVICE_KEY });
 }
 
 /** Categories grouped by department, for a category picker. */
@@ -63,9 +74,13 @@ export function categoryOptions(catalog: DepartmentWithCategories[] | undefined)
     }));
 }
 
-/** Units in service, or the owned count for equipment tracked by quantity. */
+/** Units in service, or for equipment tracked by quantity, those owned less any in repair or lost. */
 export const availableCount = (e: EquipmentSummary) =>
-  e.tracking === "quantity" ? e.quantityOwned : e.unitCounts.active;
+  e.tracking === "quantity" ? e.quantityOwned - outOfServiceCount(e) : e.unitCounts.active;
+
+/** Units in maintenance or lost, or the open repair and lost counts for equipment tracked by quantity. */
+export const outOfServiceCount = (e: EquipmentSummary) =>
+  e.tracking === "quantity" ? e.issueCounts.repair + e.issueCounts.lost : e.unitCounts.maintenance + e.unitCounts.lost;
 
 export const equipmentName = (e: { brand: string; model: string }) => `${e.brand} ${e.model}`;
 

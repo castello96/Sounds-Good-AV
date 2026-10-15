@@ -36,6 +36,20 @@
       "when": 1791917456969,
       "tag": "0004_equipment_tags",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792010739418,
+      "tag": "0005_packout",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792012816877,
+      "tag": "0006_gear_issues",
+      "breakpoints": true
     }
   ]
 }

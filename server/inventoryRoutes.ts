@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { reportIssueSchema, resolveIssueSchema, resolveUnitSchema } from "@shared/gearIssues";
 import {
   createCategorySchema,
   createUnitsSchema,
@@ -10,6 +11,7 @@ import {
   updateUnitSchema,
 } from "@shared/inventory";
 import { handle, idParam } from "./http";
+import * as gearIssues from "./services/gearIssues";
 import * as inventory from "./services/inventory";
 
 /** Catalog and inventory endpoints, mounted inside the authenticated admin router. */
@@ -138,6 +140,35 @@ export function inventoryRouter() {
     "/units/:id",
     handle(async (req, res) => {
       await inventory.deleteUnit(req.user!.id, idParam(req));
+      res.status(204).end();
+    }),
+  );
+
+  // Lost and repair
+  router.get(
+    "/out-of-service",
+    handle(async (_req, res) => {
+      res.json(await gearIssues.listOutOfService());
+    }),
+  );
+  router.post(
+    "/equipment/:id/issues",
+    handle(async (req, res) => {
+      await gearIssues.reportIssue(req.user!.id, idParam(req), reportIssueSchema.parse(req.body));
+      res.status(204).end();
+    }),
+  );
+  router.post(
+    "/issues/:id/resolve",
+    handle(async (req, res) => {
+      await gearIssues.resolveIssue(req.user!.id, idParam(req), resolveIssueSchema.parse(req.body));
+      res.status(204).end();
+    }),
+  );
+  router.post(
+    "/units/:id/resolve",
+    handle(async (req, res) => {
+      await gearIssues.resolveUnit(req.user!.id, idParam(req), resolveUnitSchema.parse(req.body));
       res.status(204).end();
     }),
   );

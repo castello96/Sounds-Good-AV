@@ -2,7 +2,7 @@ import { useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, useWatch } from "react-hook-form";
 import { Link, useLocation } from "wouter";
-import { ArrowLeft, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 import type { z } from "zod";
 import {
   createUnitsSchema,
@@ -25,11 +25,19 @@ import { useToast } from "@/hooks/use-toast";
 import { api } from "../api";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { EquipmentDialog } from "../components/EquipmentDialog";
+import { OutOfServiceTable, ReportIssueDialog } from "../components/GearIssues";
 import { SelectField } from "../components/SelectField";
 import { TagBadges } from "../components/TagBadges";
 import { TextareaField } from "../components/TextareaField";
 import { TextField } from "../components/TextField";
-import { equipmentName, invalidateInventory, STATUS_BADGE, useEquipment } from "../inventory";
+import {
+  availableCount,
+  equipmentName,
+  invalidateInventory,
+  STATUS_BADGE,
+  useEquipment,
+  useOutOfService,
+} from "../inventory";
 
 const STATUS_OPTIONS = [{ options: INVENTORY_STATUSES.map((s) => ({ value: s, label: INVENTORY_STATUS_LABELS[s] })) }];
 
@@ -37,6 +45,7 @@ type DialogState =
   | { kind: "edit" }
   | { kind: "delete" }
   | { kind: "addUnits" }
+  | { kind: "report" }
   | { kind: "editUnit"; unit: InventoryUnit }
   | { kind: "deleteUnit"; unit: InventoryUnit }
   | null;
@@ -44,6 +53,7 @@ type DialogState =
 export default function EquipmentPage({ params }: { params: { id: string } }) {
   const id = Number(params.id);
   const { data: equipment, isLoading, error } = useEquipment(id);
+  const { data: outOfService } = useOutOfService();
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const [dialog, setDialog] = useState<DialogState>(null);
@@ -90,15 +100,36 @@ export default function EquipmentPage({ params }: { params: { id: string } }) {
       </div>
 
       {equipment.tracking === "quantity" ? (
-        <div className="space-y-1 rounded-md border p-4">
-          <h2 className="text-lg font-semibold">
-            Quantity owned: <span data-testid="text-quantity-owned">{equipment.quantityOwned}</span>
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            This equipment is counted rather than tracked unit by unit, so there are no asset tags. Use Edit to change
-            the quantity when you buy more or some go missing.
-          </p>
-        </div>
+        <>
+          <div className="flex flex-wrap items-start justify-between gap-4 rounded-md border p-4">
+            <div className="space-y-1">
+              <h2 className="text-lg font-semibold">
+                Quantity owned: <span data-testid="text-quantity-owned">{equipment.quantityOwned}</span>
+              </h2>
+              <p className="text-sm" data-testid="text-quantity-available">
+                {availableCount(equipment)} available
+                {equipment.issueCounts.repair > 0 && <>, {equipment.issueCounts.repair} in repair</>}
+                {equipment.issueCounts.lost > 0 && <>, {equipment.issueCounts.lost} lost</>}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                This equipment is counted rather than tracked unit by unit, so there are no asset tags. Use Edit to
+                change the quantity when you buy more. Report damaged or lost ones here so they can't be booked.
+              </p>
+            </div>
+            <Button variant="outline" onClick={() => setDialog({ kind: "report" })} data-testid="button-report-issue">
+              <AlertTriangle /> Report damaged or lost
+            </Button>
+          </div>
+          {equipment.issueCounts.repair + equipment.issueCounts.lost > 0 && (
+            <div className="space-y-2">
+              <h2 className="text-lg font-semibold">In repair or lost</h2>
+              <OutOfServiceTable
+                entries={outOfService?.filter((e) => e.equipmentId === equipment.id)}
+                empty="Nothing is in repair or lost."
+              />
+            </div>
+          )}
+        </>
       ) : (
         <>
           <div className="flex items-center justify-between gap-4">
@@ -176,6 +207,7 @@ export default function EquipmentPage({ params }: { params: { id: string } }) {
           onClose={close}
         />
       )}
+      {dialog?.kind === "report" && <ReportIssueDialog equipment={equipment} onClose={close} />}
       {dialog?.kind === "addUnits" && <AddUnitsDialog equipment={equipment} onClose={close} />}
       {dialog?.kind === "editUnit" && <EditUnitDialog unit={dialog.unit} onClose={close} />}
       {dialog?.kind === "deleteUnit" && (

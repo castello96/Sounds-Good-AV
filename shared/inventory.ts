@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { IssueCounts } from "./gearIssues";
 
 export const INVENTORY_STATUSES = ["active", "maintenance", "retired", "lost"] as const;
 export type InventoryStatus = (typeof INVENTORY_STATUSES)[number];
@@ -86,6 +87,8 @@ export interface EquipmentSummary {
   // Always 0 for equipment tracked by units; count its units instead.
   quantityOwned: number;
   unitCounts: UnitCounts;
+  // Open repair and lost counts. Always 0 for equipment tracked by units; see unitCounts.
+  issueCounts: IssueCounts;
   // Sorted by name.
   tags: TagRef[];
 }

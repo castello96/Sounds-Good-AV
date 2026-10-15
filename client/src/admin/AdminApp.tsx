@@ -10,6 +10,9 @@ import DashboardPage from "./pages/DashboardPage";
 import EquipmentPage from "./pages/EquipmentPage";
 import InventoryPage from "./pages/InventoryPage";
 import LoginPage from "./pages/LoginPage";
+import LostAndRepairPage from "./pages/LostAndRepairPage";
+import OutNowPage from "./pages/OutNowPage";
+import PackPage from "./pages/PackPage";
 import StaffPage from "./pages/StaffPage";
 import TagsPage from "./pages/TagsPage";
 import { useCurrentUser } from "./useAuth";
@@ -40,8 +43,11 @@ export default function AdminApp() {
       <Switch>
         <Route path="/" component={DashboardPage} />
         <Route path="/bookings" component={BookingsPage} />
+        <Route path="/bookings/:id/pack" component={PackPage} />
         <Route path="/bookings/:id" component={BookingPage} />
+        <Route path="/out" component={OutNowPage} />
         <Route path="/inventory" component={InventoryPage} />
+        <Route path="/inventory/lost-and-repair" component={LostAndRepairPage} />
         <Route path="/inventory/:id" component={EquipmentPage} />
         <Route path="/categories" component={CategoriesPage} />
         <Route path="/tags" component={TagsPage} />
