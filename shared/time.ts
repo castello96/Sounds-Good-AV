@@ -57,8 +57,17 @@ export const formatDateTime = (iso: string) => dateTimeFormat.format(new Date(is
 /** "Sat, Jun 20, 2026" in business time. */
 export const formatDate = (iso: string) => dateFormat.format(new Date(iso));
 
+/** "6:00 PM" in business time. */
+export const formatTime = (iso: string) => timeFormat.format(new Date(iso));
+
 /** "Sat, Jun 20, 2026, 6:00 PM to 11:00 PM", naming the end date only when it differs. */
 export function formatRange(startIso: string, endIso: string): string {
   const sameDay = formatDate(startIso) === formatDate(endIso);
   return `${formatDateTime(startIso)} to ${sameDay ? timeFormat.format(new Date(endIso)) : formatDateTime(endIso)}`;
+}
+
+/** A wall-clock date some days later (or earlier): addDays("2026-06-30", 1) gives "2026-07-01". */
+export function addDays(date: string, days: number): string {
+  const [y, m, d] = date.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
 }
