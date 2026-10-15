@@ -249,18 +249,21 @@ export async function bookingAvailability(id: number): Promise<Availability[]> {
 // ---------------------------------------------------------------------------
 
 const itemCount = sql<number>`(select count(*)::int from ${bookingItems} where ${bookingItems.bookingId} = ${bookings.id})`;
-const paidCents = sql<number>`(select coalesce(sum(${payments.amountCents}), 0)::int from ${payments} where ${payments.bookingId} = ${bookings.id})`;
+export const paidCents = sql<number>`(select coalesce(sum(${payments.amountCents}), 0)::int from ${payments} where ${payments.bookingId} = ${bookings.id})`;
 const gearOut = sql<number>`(select coalesce(sum(${itemStillOut}), 0)::int from ${bookingItems}
   where ${bookingItems.bookingId} = ${outer(bookings.id)})`;
 
+// Everything booked, for the dashboard. packedCount is further down.
+export const quantityTotal = sql<number>`(select coalesce(sum(${bookingItems.quantity}), 0)::int from ${bookingItems}
+  where ${bookingItems.bookingId} = ${outer(bookings.id)})`;
+
+export const summaryColumns = { booking: bookings, customer: customerColumns, itemCount, paidCents, gearOut };
+
 function summaryQuery() {
-  return db
-    .select({ booking: bookings, customer: customerColumns, itemCount, paidCents, gearOut })
-    .from(bookings)
-    .innerJoin(customers, eq(customers.id, bookings.customerId));
+  return db.select(summaryColumns).from(bookings).innerJoin(customers, eq(customers.id, bookings.customerId));
 }
 
-const toSummary = (r: {
+export const toSummary = (r: {
   booking: BookingRow;
   customer: BookingSummary["customer"];
   itemCount: number;
@@ -565,6 +568,9 @@ export async function updateBookingDetails(actorId: number, id: number, data: Bo
 export const itemUnitsPacked = unitCount(sql`true`);
 // Everything that has gone out on an item, whether or not it came back.
 const itemPacked = sql<number>`(${bookingItems.quantityOut} + ${itemUnitsPacked})`;
+// Everything that has gone out on a booking, for the dashboard.
+export const packedCount = sql<number>`(select coalesce(sum(${itemPacked}), 0)::int from ${bookingItems}
+  where ${bookingItems.bookingId} = ${outer(bookings.id)})`;
 
 const PACKED_ITEM = "Gear has been packed for this item, so it can't be removed. Unpack it first.";
 

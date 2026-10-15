@@ -12,6 +12,8 @@ import { itemCountsSchema, lostUnitSchema, packUnitSchema, returnUnitSchema } fr
 import { paymentSchema } from "@shared/payments";
 import { handle, idParam } from "./http";
 import * as bookings from "./services/bookings";
+import * as dashboard from "./services/dashboard";
+import * as history from "./services/history";
 import * as packout from "./services/packout";
 import * as payments from "./services/payments";
 
@@ -38,6 +40,18 @@ export function bookingRouter() {
     "/bookings/out",
     handle(async (_req, res) => {
       res.json(await bookings.listOutNow());
+    }),
+  );
+  router.get(
+    "/dashboard",
+    handle(async (_req, res) => {
+      res.json(await dashboard.getDashboard());
+    }),
+  );
+  router.get(
+    "/bookings/:id/history",
+    handle(async (req, res) => {
+      res.json(await history.bookingHistory(idParam(req)));
     }),
   );
   router.post(

@@ -7,6 +7,7 @@ import type {
   BookingSummary,
   CustomerSummary,
 } from "@shared/bookings";
+import type { Dashboard, HistoryEntry } from "@shared/dashboard";
 import { queryClient } from "@/lib/queryClient";
 import { api } from "./api";
 
@@ -39,6 +40,26 @@ export function useBooking(id: number) {
   return useQuery({
     queryKey: [...BOOKINGS_KEY, id],
     queryFn: () => api<BookingDetail>("GET", `/api/admin/bookings/${id}`),
+  });
+}
+
+/** Who did what to a booking, newest first. */
+export function useBookingHistory(id: number) {
+  return useQuery({
+    queryKey: [...BOOKINGS_KEY, id, "history"],
+    queryFn: () => api<HistoryEntry[]>("GET", `/api/admin/bookings/${id}/history`),
+  });
+}
+
+// Under the bookings key so any booking change refreshes it. Unlike the rest
+// of the app it also refreshes when you come back to it, since the time of day
+// changes what's on it.
+export function useDashboard() {
+  return useQuery({
+    queryKey: [...BOOKINGS_KEY, "dashboard"],
+    queryFn: () => api<Dashboard>("GET", "/api/admin/dashboard"),
+    staleTime: 60_000,
+    refetchOnWindowFocus: true,
   });
 }
 
