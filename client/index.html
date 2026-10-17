@@ -2,12 +2,55 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>Sounds Good AV - Professional Audio Visual Equipment Rental</title>
-    <meta name="description" content="Professional AV equipment rental services for bands, events, podcasters, and presentations. High-quality sound systems, microphones, and managed setup services." />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+    <title>Sounds Good AV | Live Sound and AV Rental on Long Island and NYC</title>
+    <meta name="description" content="Speakers, mics and mixing for weddings, parties, bands, podcasts and talks across Long Island and NYC. Pick up the gear yourself, or let us run the whole show." />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0E0F12" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <!-- Link previews in texts and social posts -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Sounds Good AV" />
+    <meta property="og:title" content="Sounds Good AV | We bring the sound. You bring the people." />
+    <meta property="og:description" content="Live sound and AV rental for weddings, parties, bands, podcasts and talks across Long Island and NYC." />
+    <meta property="og:url" content="https://soundsgoodav.com/" />
+    <meta property="og:image" content="https://soundsgoodav.com/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "LocalBusiness",
+        "name": "Sounds Good AV",
+        "url": "https://soundsgoodav.com/",
+        "email": "info@soundsgoodav.com",
+        "telephone": "+1-516-382-4385",
+        "areaServed": ["Long Island", "New York City"],
+        "sameAs": ["https://www.instagram.com/soundsgoodav.ny/"]
+      }
+    </script>
+
+    <!-- Set the theme before the app loads, so the page doesn't flash. The public
+         site gets its own look and starts dark; the staff portal starts light. -->
+    <script>
+      (function () {
+        var site = location.pathname.indexOf("/admin") !== 0;
+        var saved = null;
+        try {
+          saved = localStorage.getItem("theme");
+        } catch (e) {}
+        var root = document.documentElement;
+        if (saved ? saved === "dark" : site) root.classList.add("dark");
+        if (site) root.classList.add("site");
+      })();
+    </script>
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Barlow:wght@400;500;600&family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   </head>
   <body>
     <div id="root"></div>

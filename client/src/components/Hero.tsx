@@ -1,53 +1,68 @@
 import { Button } from "@/components/ui/button";
-import heroImage from "@assets/generated_images/Professional_audio_equipment_studio_setup_70f1296e.png";
+import Waveform from "./Waveform";
+
+const FACTS = [
+  { label: "Reply time", value: "Under 24 hours" },
+  { label: "Service area", value: "Long Island + NYC" },
+  { label: "Your call", value: "Pickup to fully run" },
+];
 
 export default function Hero() {
-  const handleGetQuote = () => {
-    console.log('Get Quote button clicked');
-    document.getElementById('contact')?.scrollIntoView({ behavior: 'smooth' });
-  };
-
-  const handleViewServices = () => {
-    console.log('View Services button clicked');
-    document.getElementById('services')?.scrollIntoView({ behavior: 'smooth' });
-  };
-
   return (
-    <section className="relative h-screen flex items-center justify-center overflow-hidden">
-      {/* Background Image with Gradient Overlay */}
-      <div 
-        className="absolute inset-0 bg-cover bg-center bg-no-repeat"
-        style={{ backgroundImage: `url(${heroImage})` }}
+    <section id="top" className="relative flex min-h-[100svh] flex-col overflow-hidden pt-16">
+      {/* Stage lights */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            "radial-gradient(55% 60% at 80% -5%, hsl(var(--primary) / 0.22), transparent 70%), radial-gradient(40% 45% at 5% 0%, hsl(var(--signal) / 0.12), transparent 70%)",
+        }}
       />
-      <div className="absolute inset-0 bg-gradient-to-br from-foreground/90 via-foreground/70 to-primary/80" />
-      
-      {/* Content */}
-      <div className="relative z-10 text-center max-w-4xl mx-auto px-8">
-        <h1 className="text-4xl md:text-6xl font-bold text-primary-foreground mb-6 leading-tight">
-          Sounds Good <span className="text-primary">AV</span>
-        </h1>
-        <p className="text-xl md:text-2xl text-primary-foreground/90 mb-8 max-w-2xl mx-auto leading-relaxed">
-          Professional audio visual equipment rental for your events, performances, and presentations
+
+      <div className="relative mx-auto flex w-full max-w-6xl flex-1 flex-col justify-center px-6 pt-12 md:px-8">
+        <p className="font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground">
+          <span className="mr-2 inline-block h-2 w-2 rounded-full bg-signal align-middle shadow-[0_0_8px_hsl(var(--signal))]" />
+          Live sound + AV rental · Long Island / NYC
         </p>
-        <div className="flex flex-col sm:flex-row gap-4 justify-center">
-          <Button 
-            size="lg" 
-            onClick={handleGetQuote}
-            className="text-lg px-8 py-6"
-            data-testid="button-get-quote"
-          >
-            Get a Quote
+        <h1 className="mt-5 font-display text-6xl font-extrabold uppercase leading-[0.85] tracking-tight sm:text-7xl md:text-8xl lg:text-9xl">
+          We bring the sound.
+          <span className="block text-primary-text">You bring the people.</span>
+        </h1>
+        <p className="mt-6 max-w-xl text-lg text-muted-foreground md:text-xl">
+          Speakers, mics and mixing for weddings, parties, bands, podcasts and talks. Grab the gear and run it yourself,
+          or let us run the whole show.
+        </p>
+        <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+          <Button asChild size="lg" className="rounded-sm px-8 font-display text-lg uppercase tracking-wider">
+            <a href="#contact" data-testid="button-get-quote">
+              Get a quote
+            </a>
           </Button>
-          <Button 
-            variant="outline" 
-            size="lg" 
-            onClick={handleViewServices}
-            className="text-lg px-8 py-6 bg-primary-foreground/10 backdrop-blur-sm border-primary-foreground/30 text-primary-foreground hover:bg-primary-foreground/20"
-            data-testid="button-view-services"
+          <Button
+            asChild
+            size="lg"
+            variant="outline"
+            className="rounded-sm bg-transparent px-8 font-display text-lg uppercase tracking-wider"
           >
-            View Services
+            <a href="#services" data-testid="button-view-services">
+              See what we do
+            </a>
           </Button>
         </div>
+      </div>
+
+      <Waveform className="relative mt-6 h-28 w-full md:h-40" />
+
+      <div className="relative border-t bg-background/60 backdrop-blur-sm">
+        <dl className="mx-auto grid max-w-6xl grid-cols-3 divide-x px-2 md:px-4">
+          {FACTS.map((fact) => (
+            <div key={fact.label} className="px-3 py-4 md:px-4">
+              <dt className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">{fact.label}</dt>
+              <dd className="mt-1 font-display text-base font-semibold uppercase leading-tight md:text-xl">{fact.value}</dd>
+            </div>
+          ))}
+        </dl>
       </div>
     </section>
   );

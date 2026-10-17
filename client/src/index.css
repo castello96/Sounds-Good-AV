@@ -79,6 +79,8 @@
   --font-sans: Inter, sans-serif;
   --font-serif: Georgia, serif;
   --font-mono: Menlo, monospace;
+  --font-display: var(--font-sans);
+  --signal: 174 59% 40%;
   --radius: .5rem; /* 8px */
   --shadow-2xs: 0px 2px 0px 0px hsl(220 85% 15% / 0.02);
   --shadow-xs: 0px 2px 0px 0px hsl(220 85% 15% / 0.03);
@@ -204,6 +206,76 @@
   --shadow-xl: 0px 2px 0px 0px hsl(220 25% 5% / 0.40), 0px 8px 10px -1px hsl(220 25% 5% / 0.50);
   --shadow-2xl: 0px 2px 0px 0px hsl(220 25% 5% / 0.60);
 
+}
+
+/*
+ * The public site's "stage at night" look. The class is set on <html> before
+ * the app loads (see index.html), so the staff portal keeps the theme above.
+ */
+html.site {
+  --font-sans: "Barlow", system-ui, sans-serif;
+  --font-display: "Barlow Condensed", "Barlow", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+
+  /* House lights up */
+  --background: 43 33% 95%;
+  --foreground: 225 10% 8%;
+  --border: 38 15% 82%;
+  --card: 40 30% 98%;
+  --card-foreground: 225 10% 8%;
+  --card-border: 38 15% 84%;
+  --popover: 40 30% 98%;
+  --popover-foreground: 225 10% 8%;
+  --popover-border: 38 15% 82%;
+  --primary: 36 100% 50%;
+  --primary-foreground: 30 40% 6%;
+  --secondary: 40 20% 90%;
+  --secondary-foreground: 225 10% 8%;
+  --muted: 40 20% 91%;
+  --muted-foreground: 30 8% 30%;
+  --accent: 40 25% 89%;
+  --accent-foreground: 225 10% 8%;
+  --input: 38 12% 74%;
+  --ring: 36 100% 45%;
+  --signal: 174 60% 30%;
+  /* Amber that reads on the light background, for text */
+  --primary-text: 32 100% 34%;
+  scroll-behavior: smooth;
+}
+
+/* House lights down */
+html.site.dark {
+  --background: 225 13% 6%;
+  --foreground: 40 30% 93%;
+  --border: 220 10% 17%;
+  --card: 220 13% 9%;
+  --card-foreground: 40 30% 93%;
+  --card-border: 220 10% 16%;
+  --popover: 220 13% 10%;
+  --popover-foreground: 40 30% 93%;
+  --popover-border: 220 10% 20%;
+  --primary: 40 100% 56%;
+  --primary-foreground: 30 60% 6%;
+  --secondary: 220 12% 13%;
+  --secondary-foreground: 40 30% 93%;
+  --muted: 220 12% 11%;
+  --muted-foreground: 35 10% 66%;
+  --accent: 220 12% 14%;
+  --accent-foreground: 40 30% 93%;
+  --input: 220 10% 24%;
+  --ring: 40 100% 56%;
+  --signal: 174 59% 56%;
+  --primary-text: 40 100% 56%;
+}
+
+html.site ::selection {
+  background: hsl(var(--primary) / 0.35);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.site {
+    scroll-behavior: auto;
+  }
 }
 
 @layer base {

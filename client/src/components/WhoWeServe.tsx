@@ -1,77 +1,66 @@
-import { Card, CardContent } from "@/components/ui/card";
-import { Music, PartyPopper, Mic, Presentation } from "lucide-react";
+import { Mic, Music, PartyPopper, Presentation } from "lucide-react";
+import SectionHeading from "./SectionHeading";
 
 const services = [
   {
-    icon: Music,
-    title: "Bands",
-    description: "High-quality sound systems and professional audio equipment for live performances and concerts.",
-    features: ["Professional mixing boards", "Staging", "PA systems / monitors", "Wireless microphones"]
+    icon: PartyPopper,
+    title: "Weddings and parties",
+    description: "Toasts everyone can hear, a first dance that sounds right, and a playlist that keeps the floor full.",
+    kit: ["Portable sound systems", "Wireless speakers", "DJ equipment", "Background music setup"],
   },
   {
-    icon: PartyPopper,
-    title: "Parties",
-    description: "Perfect audio solutions for weddings, birthdays, corporate events, and special celebrations.",
-    features: ["Portable sound systems", "Wireless speakers", "DJ equipment", "Background music setup"]
+    icon: Music,
+    title: "Bands and live music",
+    description: "From a backyard set to a full stage. Mains, monitors and a board that can handle the whole band.",
+    kit: ["Mixing boards", "PA systems and monitors", "Wireless microphones", "Staging"],
   },
   {
     icon: Mic,
-    title: "Podcasters", 
-    description: "Top-tier microphones and recording equipment for professional podcast production.",
-    features: ["Studio-grade microphones", "Audio interfaces", "Headphones", "Recording accessories"]
+    title: "Podcasts and recording",
+    description: "Studio-grade mics and interfaces, so every voice sounds close, clear and like it belongs on the show.",
+    kit: ["Studio-grade microphones", "Audio interfaces", "Headphones", "Recording accessories"],
   },
   {
     icon: Presentation,
-    title: "Speakers/Presenters",
-    description: "Clear, professional audio systems for presentations, conferences, and speaking engagements.",
-    features: ["Wireless presentation mics", "Portable PA systems", "Clip-on microphones", "Audio amplifiers"]
-  }
+    title: "Talks and presentations",
+    description: "Every word heard in the back row, with no feedback squeal and no fumbling with cables.",
+    kit: ["Wireless presentation mics", "Clip-on microphones", "Portable PA systems", "Audio amplifiers"],
+  },
 ];
 
 export default function WhoWeServe() {
   return (
-    <section id="services" className="py-24 px-8 bg-muted/30">
-      <div className="max-w-6xl mx-auto">
-        <div className="text-center mb-16">
-          <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
-            Who We Serve
-          </h2>
-          <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            Specialized audio solutions for every type of event and professional need
-          </p>
-        </div>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+    <section id="services" className="scroll-mt-16 px-6 py-24 md:px-8">
+      <div className="mx-auto max-w-6xl">
+        <SectionHeading channel="01" label="What we do" title="Built for your kind of night.">
+          Big room or back porch, we match the gear to the event, not the other way around.
+        </SectionHeading>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {services.map((service, index) => (
-            <Card 
-              key={index} 
-              className="hover-elevate transition-all duration-300 border-card-border"
+            <article
+              key={service.title}
+              className="group relative rounded-sm border bg-card p-6 transition-colors hover:border-primary/60 md:p-8"
               data-testid={`card-service-${index}`}
             >
-              <CardContent className="p-8">
-                <div className="flex items-start gap-6">
-                  <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center flex-shrink-0">
-                    <service.icon className="w-6 h-6 text-primary" />
-                  </div>
-                  <div className="flex-1">
-                    <h3 className="text-xl font-semibold text-card-foreground mb-3">
-                      {service.title}
-                    </h3>
-                    <p className="text-muted-foreground mb-4 leading-relaxed">
-                      {service.description}
-                    </p>
-                    <ul className="space-y-2">
-                      {service.features.map((feature, featureIndex) => (
-                        <li key={featureIndex} className="text-sm text-muted-foreground flex items-center gap-2">
-                          <div className="w-1.5 h-1.5 bg-primary rounded-full flex-shrink-0" />
-                          {feature}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+              {/* The channel's signal light */}
+              <span
+                aria-hidden
+                className="absolute right-5 top-5 h-2 w-2 rounded-full bg-muted-foreground/30 transition-all group-hover:bg-primary group-hover:shadow-[0_0_10px_hsl(var(--primary))]"
+              />
+              <service.icon className="h-7 w-7 text-primary-text" strokeWidth={1.75} />
+              <h3 className="mt-5 font-display text-3xl font-bold uppercase leading-none">{service.title}</h3>
+              <p className="mt-3 text-muted-foreground">{service.description}</p>
+              <p className="mt-6 font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">In the kit</p>
+              <ul className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1.5 text-sm sm:grid-cols-2">
+                {service.kit.map((item) => (
+                  <li key={item} className="flex items-center gap-2">
+                    <span className="h-px w-3 bg-primary" aria-hidden />
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </article>
           ))}
         </div>
       </div>
