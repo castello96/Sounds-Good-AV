@@ -7,7 +7,8 @@ import type {
   BookingSummary,
   CustomerSummary,
 } from "@shared/bookings";
-import type { Dashboard, HistoryEntry } from "@shared/dashboard";
+import type { Dashboard } from "@shared/dashboard";
+import type { BookingActivity } from "@shared/progress";
 import { queryClient } from "@/lib/queryClient";
 import { api } from "./api";
 
@@ -43,11 +44,11 @@ export function useBooking(id: number) {
   });
 }
 
-/** Who did what to a booking, newest first. */
-export function useBookingHistory(id: number) {
+/** The booking's history and when it reached each step on its tracker. */
+export function useBookingActivity(id: number) {
   return useQuery({
     queryKey: [...BOOKINGS_KEY, id, "history"],
-    queryFn: () => api<HistoryEntry[]>("GET", `/api/admin/bookings/${id}/history`),
+    queryFn: () => api<BookingActivity>("GET", `/api/admin/bookings/${id}/history`),
   });
 }
 

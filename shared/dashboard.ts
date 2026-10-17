@@ -37,6 +37,23 @@ export interface Dashboard {
   balanceTotalCents: number;
   // Gear in repair or lost right now.
   outOfService: IssueCounts;
+  stats: DashboardStats;
+}
+
+export interface PeriodStats {
+  completed: number;
+  // Payments less refunds on completed bookings and cancelled ones that kept a deposit.
+  earnedCents: number;
+}
+
+/** Totals by event date. "This year" is the calendar year in New York. */
+export interface DashboardStats {
+  year: number;
+  thisYear: PeriodStats;
+  allTime: PeriodStats;
+  // Paid on bookings that haven't happened or finished yet. Not earned until they're completed.
+  depositsHeldCents: number;
+  depositsHeldCount: number;
 }
 
 export const UPCOMING_DAYS = 14;

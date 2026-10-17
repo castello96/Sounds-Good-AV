@@ -1,6 +1,7 @@
 import { desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
 import { BOOKING_STATUS_LABELS, formatMoney, type BookingStatus } from "@shared/bookings";
 import type { HistoryEntry } from "@shared/dashboard";
+import type { BookingActivity, Milestone, Milestones } from "@shared/progress";
 import { PAYMENT_METHOD_LABELS } from "@shared/payments";
 import type { PaymentMethod } from "@shared/schema";
 import { db } from "../db";
@@ -28,8 +29,11 @@ const insertedUnder = (entityType: string, parentKey: string, parentIds: SQL) =>
   sql`(select ae.entity_id from audit_events ae
     where ae.entity_type = ${entityType} and ae.action = 'insert' and (ae.changes ->> ${parentKey})::int in ${parentIds})`;
 
-/** Who did what to a booking, its items, packed units and payments. Newest first. */
-export async function bookingHistory(bookingId: number): Promise<HistoryEntry[]> {
+/**
+ * Who did what to a booking, its items, packed units and payments, newest
+ * first. Also when it reached each step on its tracker.
+ */
+export async function bookingHistory(bookingId: number): Promise<BookingActivity> {
   const [booking] = await db.select({ id: bookings.id }).from(bookings).where(eq(bookings.id, bookingId));
   notFound(booking, "Booking");
 
@@ -60,19 +64,42 @@ export async function bookingHistory(bookingId: number): Promise<HistoryEntry[]>
     .orderBy(desc(auditEvents.id));
 
   const names = await namesFor(rows);
-  return rows.flatMap((row) => {
+  const history = rows.flatMap((row): HistoryEntry[] => {
     const described = describe(row, names);
     if (!described) return [];
-    return [
-      {
-        id: row.id,
-        at: row.createdAt.toISOString(),
-        actor: row.firstName === null ? null : `${row.firstName} ${row.lastName}`,
-        summary: described.summary,
-        detail: described.detail ?? null,
-      },
-    ];
+    return [{ id: row.id, ...milestone(row), summary: described.summary, detail: described.detail ?? null }];
   });
+  return { history, milestones: milestones(rows) };
+}
+
+const milestone = (row: AuditRow): Milestone => ({
+  at: row.createdAt.toISOString(),
+  actor: row.firstName === null ? null : `${row.firstName} ${row.lastName}`,
+});
+
+/** The first time a booking reached each status or had gear packed, and the latest gear check-in. */
+function milestones(rows: AuditRow[]): Milestones {
+  const found: Milestones = {};
+  const first = (key: keyof Milestones, row: AuditRow) => (found[key] ??= milestone(row));
+  // Oldest first.
+  for (const row of rows.slice().reverse()) {
+    const changes = row.changes as Record<string, [unknown, unknown]>;
+    const rose = (key: string) => Boolean(changes[key]) && Number(changes[key][1]) > Number(changes[key][0]);
+    if (row.entityType === "bookings") {
+      if (row.action === "insert") first("created", row);
+      const status = row.action === "update" ? changes.status?.[1] : undefined;
+      if (status === "quoted" || status === "confirmed" || status === "completed" || status === "cancelled") {
+        first(status, row);
+      }
+    } else if (row.entityType === "booking_item_units") {
+      if (row.action === "insert") first("out", row);
+      if (row.action === "update" && (changes.returned_at?.[1] || changes.lost_at?.[1])) found.back = milestone(row);
+    } else if (row.entityType === "booking_items" && row.action === "update") {
+      if (rose("quantity_out")) first("out", row);
+      if (rose("quantity_returned") || rose("quantity_lost")) found.back = milestone(row);
+    }
+  }
+  return found;
 }
 
 interface Names {
