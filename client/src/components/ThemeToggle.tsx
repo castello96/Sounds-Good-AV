@@ -1,36 +1,20 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Moon, Sun } from "lucide-react";
 
-export default function ThemeToggle() {
-  const [theme, setTheme] = useState<'light' | 'dark'>('light');
-
-  useEffect(() => {
-    // Check for saved theme or default to light
-    const savedTheme = localStorage.getItem('theme') as 'light' | 'dark' | null;
-    const initialTheme = savedTheme || 'light';
-    setTheme(initialTheme);
-    
-    // Apply theme to document
-    if (initialTheme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  }, []);
+// index.html applies the saved theme before the app loads, so start from what's on the page.
+export default function ThemeToggle({ className }: { className?: string }) {
+  const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
 
   const toggleTheme = () => {
-    const newTheme = theme === 'light' ? 'dark' : 'light';
-    setTheme(newTheme);
-    localStorage.setItem('theme', newTheme);
-    
-    if (newTheme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
+    const next = !dark;
+    setDark(next);
+    document.documentElement.classList.toggle("dark", next);
+    try {
+      localStorage.setItem("theme", next ? "dark" : "light");
+    } catch {
+      // Private windows can block storage. The toggle still works for this visit.
     }
-    
-    console.log('Theme toggled to:', newTheme);
   };
 
   return (
@@ -39,14 +23,10 @@ export default function ThemeToggle() {
       size="icon"
       onClick={toggleTheme}
       data-testid="button-theme-toggle"
-      className="hover-elevate"
+      className={className ?? "hover-elevate"}
     >
-      {theme === 'light' ? (
-        <Moon className="h-5 w-5" />
-      ) : (
-        <Sun className="h-5 w-5" />
-      )}
-      <span className="sr-only">Toggle theme</span>
+      {dark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+      <span className="sr-only">{dark ? "Turn the lights up" : "Turn the lights down"}</span>
     </Button>
   );
 }

@@ -52,6 +52,9 @@ export default {
           border: "var(--destructive-border)",
         },
         ring: "hsl(var(--ring) / <alpha-value>)",
+        // The public site's meter teal, and its amber for text.
+        signal: "hsl(var(--signal) / <alpha-value>)",
+        "primary-text": "hsl(var(--primary-text, var(--primary)) / <alpha-value>)",
         chart: {
           "1": "hsl(var(--chart-1) / <alpha-value>)",
           "2": "hsl(var(--chart-2) / <alpha-value>)",
@@ -86,6 +89,7 @@ export default {
         sans: ["var(--font-sans)"],
         serif: ["var(--font-serif)"],
         mono: ["var(--font-mono)"],
+        display: ["var(--font-display)"],
       },
       keyframes: {
         "accordion-down": {

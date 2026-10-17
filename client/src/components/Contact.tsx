@@ -1,3 +1,4 @@
+import type { ComponentType, ReactNode } from "react";
 import { useForm, type Control, type FieldPath } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "@/components/ui/button";
@@ -8,8 +9,11 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Mail, Phone, MapPin, Clock } from "lucide-react";
+import { SiInstagram } from "react-icons/si";
 import { useToast } from "@/hooks/use-toast";
 import { useMutation } from "@tanstack/react-query";
+import { CONTACT } from "@/lib/site";
+import SectionHeading from "./SectionHeading";
 import {
   DELIVERY_TYPES,
   DELIVERY_TYPE_LABELS,
@@ -93,6 +97,40 @@ function TextField({
   );
 }
 
+function ContactRow({
+  icon: Icon,
+  label,
+  href,
+  external,
+  children,
+}: {
+  icon: ComponentType<{ className?: string }>;
+  label: string;
+  href?: string;
+  external?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex items-start gap-3">
+      <Icon className="mt-1 h-4 w-4 shrink-0 text-primary-text" />
+      <div>
+        <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">{label}</p>
+        {href ? (
+          <a
+            href={href}
+            className="hover:text-primary-text"
+            {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+          >
+            {children}
+          </a>
+        ) : (
+          <p>{children}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Contact() {
   const { toast } = useToast();
   const form = useForm<QuoteRequestInput, unknown, QuoteRequest>({
@@ -121,15 +159,15 @@ export default function Contact() {
     },
     onSuccess: (response) => {
       toast({
-        title: "Quote Request Submitted",
-        description: response.message || "We'll get back to you within 24 hours with your custom quote.",
+        title: "Got it. Sounds good!",
+        description: response.message || "We'll get back to you within 24 hours with a quote.",
       });
       form.reset(EMPTY_FORM);
     },
     onError: (error) => {
       toast({
-        title: "Error",
-        description: error.message || "There was an error submitting your quote request. Please try again.",
+        title: "That didn't go through",
+        description: error.message || "Something went wrong sending your request. Please try again.",
         variant: "destructive",
       });
     },
@@ -145,23 +183,19 @@ export default function Contact() {
   };
 
   return (
-    <section id="contact" className="py-24 px-8 bg-background">
+    <section id="contact" className="scroll-mt-16 border-t bg-card/50 px-6 py-24 md:px-8">
       <div className="max-w-6xl mx-auto">
-        <div className="text-center mb-16">
-          <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
-            Get Your Custom Quote
-          </h2>
-          <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            Tell us about your event and we'll provide a tailored audio solution
-          </p>
-        </div>
-        
+        <SectionHeading channel="04" label="Get a quote" title="Let's make it sound good.">
+          Tell us what you're planning and we'll put together the right kit and a clear price. You'll hear back within
+          24 hours.
+        </SectionHeading>
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Contact Form */}
           <div className="lg:col-span-2">
-            <Card className="border-card-border">
+            <Card className="rounded-sm border-card-border">
               <CardHeader>
-                <CardTitle className="text-xl text-card-foreground">Request a Quote</CardTitle>
+                <CardTitle className="font-display text-2xl uppercase tracking-wide">Request a quote</CardTitle>
               </CardHeader>
               <CardContent>
                 <Form {...form}>
@@ -262,7 +296,7 @@ export default function Contact() {
                                 {DELIVERY_OPTIONS.map((option) => (
                                   <FormItem key={option.value} className="space-y-0">
                                     <FormLabel
-                                      className="flex items-start gap-3 rounded-md border p-3 cursor-pointer font-normal hover-elevate has-[:checked]:border-primary"
+                                      className="flex items-start gap-3 rounded-sm border p-3 cursor-pointer font-normal hover-elevate has-[:checked]:border-primary"
                                       data-testid={`radio-delivery-${option.value}`}
                                     >
                                       <FormControl>
@@ -330,11 +364,11 @@ export default function Contact() {
                     <Button
                       type="submit"
                       size="lg"
-                      className="w-full"
+                      className="w-full rounded-sm font-display text-lg uppercase tracking-wider"
                       disabled={submitQuoteMutation.isPending}
                       data-testid="button-submit-quote"
                     >
-                      {submitQuoteMutation.isPending ? "Submitting..." : "Submit Quote Request"}
+                      {submitQuoteMutation.isPending ? "Sending..." : "Send my request"}
                     </Button>
                   </form>
                 </Form>
@@ -344,48 +378,38 @@ export default function Contact() {
           
           {/* Contact Information */}
           <div className="space-y-6">
-            <Card className="border-card-border">
+            <Card className="rounded-sm border-card-border">
               <CardHeader>
-                <CardTitle className="text-xl text-card-foreground">Contact Information</CardTitle>
+                <CardTitle className="font-display text-2xl uppercase tracking-wide">Rather just talk?</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="flex items-center gap-3">
-                  <Mail className="w-5 h-5 text-primary" />
-                  <div>
-                    <p className="font-medium text-card-foreground">Email</p>
-                    <p className="text-muted-foreground">info@soundsgoodav.com</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Phone className="w-5 h-5 text-primary" />
-                  <div>
-                    <p className="font-medium text-card-foreground">Phone</p>
-                    <p className="text-muted-foreground">(516) 382-4385</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <MapPin className="w-5 h-5 text-primary" />
-                  <div>
-                    <p className="font-medium text-card-foreground">Service Area</p>
-                    <p className="text-muted-foreground">Long Island / NYC</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Clock className="w-5 h-5 text-primary" />
-                  <div>
-                    <p className="font-medium text-card-foreground">Hours</p>
-                    <p className="text-muted-foreground">Mon-Fri: 9AM-6PM</p>
-                    <p className="text-muted-foreground">Sat-Sun: By appointment</p>
-                  </div>
-                </div>
+                <ContactRow icon={Mail} label="Email" href={`mailto:${CONTACT.email}`}>
+                  {CONTACT.email}
+                </ContactRow>
+                <ContactRow icon={Phone} label="Call or text" href={CONTACT.phoneHref}>
+                  {CONTACT.phone}
+                </ContactRow>
+                <ContactRow icon={SiInstagram} label="Instagram" href={CONTACT.instagram} external>
+                  {CONTACT.instagramHandle}
+                </ContactRow>
+                <ContactRow icon={MapPin} label="Service area">
+                  {CONTACT.serviceArea}
+                </ContactRow>
+                <ContactRow icon={Clock} label="Hours">
+                  Weekdays 9 to 6, weekends by appointment
+                </ContactRow>
               </CardContent>
             </Card>
-            
-            <Card className="border-card-border bg-primary/5">
+
+            <Card className="rounded-sm border-primary/40 bg-primary/5">
               <CardContent className="p-6">
-                <h3 className="font-semibold text-card-foreground mb-2">24-Hour Response Guarantee</h3>
-                <p className="text-sm text-muted-foreground">
-                  We respond to all quote requests within 24 hours, often much sooner. Need something urgent? Call us directly.
+                <p className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.2em] text-primary-text">
+                  <span className="h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_6px_hsl(var(--primary))]" aria-hidden />
+                  Reply within 24 hours
+                </p>
+                <p className="mt-3 text-sm text-muted-foreground">
+                  Every request gets a real answer from a real person, usually the same day. Event coming up fast? Call
+                  or text and we'll sort it out.
                 </p>
               </CardContent>
             </Card>

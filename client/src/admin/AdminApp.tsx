@@ -70,9 +70,14 @@ function useNoIndex() {
     meta.name = "robots";
     meta.content = "noindex, nofollow";
     document.head.appendChild(meta);
+    // The public site's look is set on <html>; the portal keeps its own.
+    const root = document.documentElement;
+    const wasSite = root.classList.contains("site");
+    root.classList.remove("site");
     return () => {
       document.title = previousTitle;
       meta.remove();
+      if (wasSite) root.classList.add("site");
     };
   }, []);
 }
