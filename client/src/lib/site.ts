@@ -14,3 +14,9 @@ export const NAV_LINKS = [
   { label: "How it works", href: "#how" },
   { label: "About", href: "#about" },
 ];
+
+// Photos from real Sounds Good AV events. The gallery stays hidden until there's at least one.
+export const GALLERY: { src: string; alt: string; caption?: string }[] = [];
+
+// Words from real clients, shared with their permission. The section stays hidden until there's at least one.
+export const TESTIMONIALS: { quote: string; name: string; event: string }[] = [];

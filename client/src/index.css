@@ -272,9 +272,75 @@ html.site ::selection {
   background: hsl(var(--primary) / 0.35);
 }
 
+/* House lights: the theme toggle fades between dark and light instead of snapping. */
+html.site.theme-fade,
+html.site.theme-fade * {
+  transition: background-color 700ms ease, border-color 700ms ease, color 700ms ease, fill 700ms ease !important;
+}
+
+/* Mic check on the logo: the level bars jump and a speech bubble pops up. */
+@keyframes mic-bar {
+  0%, 100% { transform: scaleY(1); }
+  30% { transform: scaleY(0.35); }
+  60% { transform: scaleY(1.15); }
+}
+.mic-check rect {
+  transform-box: fill-box;
+  transform-origin: bottom;
+  animation: mic-bar 380ms ease-in-out 5;
+}
+.mic-check rect:nth-child(2) { animation-delay: 90ms; }
+.mic-check rect:nth-child(3) { animation-delay: 180ms; }
+@keyframes mic-bubble {
+  0% { opacity: 0; transform: translateY(-4px) scale(0.95); }
+  12%, 85% { opacity: 1; transform: none; }
+  100% { opacity: 0; }
+}
+.mic-bubble { animation: mic-bubble 2.4s ease-out forwards; }
+
+/* 404: the line comes back to life and keeps scrolling. */
+@keyframes signal-scroll {
+  to { transform: translateX(-200px); }
+}
+.signal-live { animation: signal-scroll 1.6s linear infinite; }
+@keyframes signal-in {
+  from { opacity: 0; transform: scaleY(0); }
+  to { opacity: 1; transform: scaleY(1); }
+}
+.signal-in { transform-origin: center; animation: signal-in 500ms ease-out; }
+
+/* Stage lights for the Konami code. */
+@keyframes stage-sway {
+  0%, 100% { transform: translateX(-50%) rotate(calc(var(--angle) - 14deg)); }
+  50% { transform: translateX(-50%) rotate(calc(var(--angle) + 14deg)); }
+}
+@keyframes stage-show {
+  0% { opacity: 0; }
+  10%, 85% { opacity: 1; }
+  100% { opacity: 0; }
+}
+.stage-lights { animation: stage-show 5s ease-in-out forwards; }
+.stage-beam {
+  transform-origin: top center;
+  animation: stage-sway var(--speed) ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   html.site {
     scroll-behavior: auto;
+  }
+  html.site.theme-fade,
+  html.site.theme-fade * {
+    transition: none !important;
+  }
+  .mic-check rect,
+  .signal-live,
+  .signal-in,
+  .stage-beam {
+    animation: none;
+  }
+  .stage-beam {
+    transform: translateX(-50%) rotate(var(--angle));
   }
 }
 

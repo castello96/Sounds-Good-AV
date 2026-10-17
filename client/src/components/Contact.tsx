@@ -40,11 +40,11 @@ function ContactRow({
   );
 }
 
-export default function Contact() {
+export default function Contact({ channel = "04" }: { channel?: string }) {
   return (
     <section id="contact" className="scroll-mt-16 border-t bg-card/50 px-6 py-24 md:px-8">
       <div className="max-w-6xl mx-auto">
-        <SectionHeading channel="04" label="Get a quote" title="Let's make it sound good.">
+        <SectionHeading channel={channel} label="Get a quote" title="Let's make it sound good.">
           Tell us what you're planning and we'll put together the right kit and a clear price. You'll hear back within
           24 hours.
         </SectionHeading>

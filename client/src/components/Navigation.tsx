@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useRef, useState, type MouseEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Menu, X } from "lucide-react";
+import { micCheck } from "@/lib/fx";
 import { NAV_LINKS } from "@/lib/site";
 import Logo from "./Logo";
 import ThemeToggle from "./ThemeToggle";
@@ -8,12 +9,33 @@ import ThemeToggle from "./ThemeToggle";
 export default function Navigation() {
   const [isOpen, setIsOpen] = useState(false);
   const close = () => setIsOpen(false);
+  const [checking, setChecking] = useState(0);
+  const checkTimer = useRef<number>();
+
+  // The logo goes back to the top. Already at the top, it does a mic check instead.
+  const onLogo = (event: MouseEvent) => {
+    if (window.scrollY > 8) return;
+    event.preventDefault();
+    micCheck();
+    setChecking((count) => count + 1);
+    window.clearTimeout(checkTimer.current);
+    checkTimer.current = window.setTimeout(() => setChecking(0), 2400);
+  };
 
   return (
     <nav className="fixed left-0 right-0 top-0 z-50 border-b bg-background/80 backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6 md:px-8">
-        <a href="#top" aria-label="Sounds Good AV, back to top" data-testid="link-home">
-          <Logo />
+        <a href="#top" onClick={onLogo} aria-label="Sounds Good AV, back to top" className="relative" data-testid="link-home">
+          <Logo key={checking} className={checking ? "mic-check" : undefined} />
+          {checking > 0 && (
+            <span
+              key={`bubble-${checking}`}
+              aria-hidden
+              className="mic-bubble pointer-events-none absolute left-0 top-full mt-2 whitespace-nowrap rounded-sm border bg-card px-2.5 py-1 font-mono text-xs uppercase tracking-widest text-primary-text shadow-md"
+            >
+              Check, one, two
+            </span>
+          )}
         </a>
 
         <div className="hidden items-center gap-1 lg:flex">
