@@ -57,9 +57,8 @@ export default function Mixer() {
     <section id="soundcheck" className="scroll-mt-16 px-6 py-24 md:px-8">
       <div className="mx-auto grid max-w-6xl grid-cols-1 items-center gap-12 lg:grid-cols-[1fr_minmax(0,520px)] lg:gap-16">
         <div>
-          <SectionHeading channel="00" label="Soundcheck" title="Go ahead, push a fader.">
-            This is a little mixing board running right in your browser. It's silent until you bring up the mains.
-            Then ride the channels and make the mix your own.
+          <SectionHeading channel="00" label="Soundcheck" title="Check, one, two.">
+            Every show starts with a soundcheck. Here's yours. Go ahead, push some faders.
           </SectionHeading>
           <p className="-mt-6 font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground">
             Heads up: it plays real sound. Check your volume first.
@@ -122,7 +121,7 @@ export default function Mixer() {
           </div>
 
           <p className="mt-4 border-t pt-3 font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-            Demo loop, synthesized live in your browser
+            Now playing: house loop
           </p>
         </div>
       </div>
