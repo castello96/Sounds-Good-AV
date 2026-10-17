@@ -88,6 +88,7 @@ export default function Mixer() {
             {STRIPS.map((strip, index) => {
               const mains = strip === "mains";
               const prompt = mains && levels.mains === 0;
+              const eleven = mains && levels.mains === FADER_MAX.mains;
               return (
                 <div key={strip} className={cn("flex flex-col items-center", mains && "border-l")}>
                   <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
@@ -110,10 +111,10 @@ export default function Mixer() {
                   <p
                     className={cn(
                       "mt-1 font-mono text-xs tabular-nums",
-                      prompt ? "animate-pulse text-primary-text" : "text-muted-foreground",
+                      prompt ? "animate-pulse text-primary-text" : eleven ? "font-bold text-primary-text" : "text-muted-foreground",
                     )}
                   >
-                    {prompt ? "Push ↑" : levels[strip].toFixed(1)}
+                    {prompt ? "Push ↑" : eleven ? "Eleven" : levels[strip].toFixed(1)}
                   </p>
                 </div>
               );

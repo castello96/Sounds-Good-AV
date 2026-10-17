@@ -1,7 +1,12 @@
 import { useRef, type KeyboardEvent, type PointerEvent } from "react";
 import { cn } from "@/lib/utils";
 
-const TICKS = [10, 8, 6, 4, 2, 0];
+/** Scale marks every 2 up to 10, plus the top of the throw when a fader goes past 10. */
+function ticks(max: number) {
+  const marks = [0, 2, 4, 6, 8, 10].filter((mark) => mark <= max);
+  if (max > 10) marks.push(max);
+  return marks;
+}
 
 /** A vertical console fader. Drag the cap or tap the track; arrow keys, Page Up/Down, Home and End work too. */
 export default function Fader({
@@ -68,9 +73,13 @@ export default function Fader({
       data-testid={`fader-${label.toLowerCase()}`}
     >
       {/* Scale */}
-      <div aria-hidden className="absolute inset-y-0 left-0 flex flex-col justify-between">
-        {TICKS.map((tick) => (
-          <span key={tick} className="h-px w-1.5 bg-muted-foreground/40" />
+      <div aria-hidden className="absolute inset-y-0 left-0 w-1.5">
+        {ticks(max).map((tick) => (
+          <span
+            key={tick}
+            className={cn("absolute left-0 h-px w-1.5", tick > 10 ? "bg-primary" : "bg-muted-foreground/40")}
+            style={{ bottom: `${(tick / max) * 100}%` }}
+          />
         ))}
       </div>
       {/* Slot */}

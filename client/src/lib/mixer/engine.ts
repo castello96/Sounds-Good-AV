@@ -6,7 +6,8 @@ export const CHANNELS = ["drums", "bass", "keys", "lead"] as const;
 export type Channel = (typeof CHANNELS)[number];
 export type Strip = Channel | "mains";
 
-export const FADER_MAX: Record<Strip, number> = { drums: 10, bass: 10, keys: 10, lead: 10, mains: 10 };
+// Mains goes to 11. It's one louder, and the limiter keeps it clean.
+export const FADER_MAX: Record<Strip, number> = { drums: 10, bass: 10, keys: 10, lead: 10, mains: 11 };
 
 // Mains starts down, so nothing plays until a visitor pushes it up.
 const DEFAULT_LEVELS: Record<Strip, number> = { drums: 7, bass: 7, keys: 6, lead: 6, mains: 0 };
