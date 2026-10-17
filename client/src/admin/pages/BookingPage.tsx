@@ -23,6 +23,7 @@ import { useToast } from "@/hooks/use-toast";
 import { api } from "../api";
 import { customerName, invalidateBookings, isOverdue, STATUS_BADGE, useBooking } from "../bookings";
 import { BookingHistory } from "../components/BookingHistory";
+import { BookingProgress } from "../components/BookingProgress";
 import { CustomerDialog, DELIVERY_LABELS, DetailsDialog, ItemDialog } from "../components/BookingDialogs";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { PaymentDialog } from "../components/PaymentDialog";
@@ -138,6 +139,8 @@ export default function BookingPage({ params }: { params: { id: string } }) {
           )}
         </div>
       </div>
+
+      <BookingProgress booking={booking} />
 
       {booking.status === "confirmed" && booking.gearOut > 0 && (
         <Notice>

@@ -1,14 +1,15 @@
 import { useState } from "react";
 import { formatDateTime } from "@shared/time";
 import { Button } from "@/components/ui/button";
-import { useBookingHistory } from "../bookings";
+import { useBookingActivity } from "../bookings";
 
 // Most bookings fit. Longer histories start collapsed to the latest changes.
 const SHOWN = 10;
 
 /** Who did what to a booking, newest first. Read from the audit log. */
 export function BookingHistory({ bookingId }: { bookingId: number }) {
-  const { data: history, isLoading } = useBookingHistory(bookingId);
+  const { data, isLoading } = useBookingActivity(bookingId);
+  const history = data?.history;
   const [expanded, setExpanded] = useState(false);
   const visible = expanded ? history : history?.slice(0, SHOWN);
 

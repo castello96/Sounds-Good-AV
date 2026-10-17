@@ -1,9 +1,19 @@
 import type { ReactNode } from "react";
 import { Link } from "wouter";
 import { formatDistanceToNowStrict } from "date-fns";
-import { AlertTriangle, ArrowDownToLine, ArrowUpFromLine, CalendarDays, Inbox, Wallet, Wrench } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  CalendarDays,
+  CheckCircle2,
+  Inbox,
+  TrendingUp,
+  Wallet,
+  Wrench,
+} from "lucide-react";
 import { BOOKING_STATUS_LABELS, formatMoney } from "@shared/bookings";
-import { UPCOMING_DAYS, type DashboardBooking } from "@shared/dashboard";
+import { UPCOMING_DAYS, type DashboardBooking, type DashboardStats } from "@shared/dashboard";
 import { EVENT_TYPE_LABELS } from "@shared/schema";
 import { formatDate, formatDateTime, formatRange, formatTime, toLocalInput } from "@shared/time";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +26,7 @@ import { useCurrentUser } from "../useAuth";
 export default function DashboardPage() {
   const { data: user } = useCurrentUser();
   const { data, isLoading } = useDashboard();
+  const now = Date.now();
 
   return (
     <div className="space-y-6">
@@ -31,14 +42,39 @@ export default function DashboardPage() {
       ) : (
         <>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-            <Tile label="Overdue" value={data.overdue.length} alert={data.overdue.length > 0} href="/out" />
+            <Tile
+              label="Overdue"
+              value={data.overdue.length}
+              tone={data.overdue.length > 0 ? "bad" : "good"}
+              hint={data.overdue.length > 0 ? "Gear past its back time" : "Nothing overdue"}
+              href="/out"
+            />
             <Tile label="Going out today" value={data.goingOut.length} />
             <Tile label="Coming back today" value={data.comingBack.length} />
-            <Tile label="Inquiries waiting" value={data.inquiries.length} href="/bookings" />
-            <Tile label="Owed to us" value={formatMoney(data.balanceTotalCents)} />
+            <Tile
+              label="Inquiries waiting"
+              value={data.inquiries.length}
+              tone={data.inquiries.some((b) => waitedLong(b, now)) ? "warn" : undefined}
+              hint={data.inquiries.some((b) => waitedLong(b, now)) ? "Waiting over a day" : undefined}
+              href="/bookings"
+            />
+            <Tile
+              label="Owed to us"
+              value={formatMoney(data.balanceTotalCents)}
+              tone={data.balances.length === 0 ? "good" : data.balances.some((b) => eventOver(b, now)) ? "bad" : "warn"}
+              hint={
+                data.balances.length === 0
+                  ? "Everyone is paid up"
+                  : data.balances.some((b) => eventOver(b, now))
+                    ? "Owed on past events"
+                    : "Due on upcoming events"
+              }
+            />
             <Tile
               label="In repair or lost"
               value={data.outOfService.repair + data.outOfService.lost}
+              tone={data.outOfService.repair + data.outOfService.lost > 0 ? "warn" : "good"}
+              hint={data.outOfService.repair + data.outOfService.lost > 0 ? "Needs settling" : "All gear in service"}
               href="/inventory/lost-and-repair"
             />
           </div>
@@ -129,7 +165,11 @@ export default function DashboardPage() {
                   key={b.id}
                   booking={b}
                   detail={`${EVENT_TYPE_LABELS[b.eventType]} on ${formatDate(b.eventStartAt)}`}
-                  aside={`Waiting ${formatDistanceToNowStrict(new Date(b.createdAt))}`}
+                  aside={
+                    <span className={cn(waitedLong(b, now) && WARN_TEXT)}>
+                      Waiting {formatDistanceToNowStrict(new Date(b.createdAt))}
+                    </span>
+                  }
                 />
               ))}
             </Section>
@@ -162,11 +202,17 @@ export default function DashboardPage() {
                   key={b.id}
                   booking={b}
                   detail={`${BOOKING_STATUS_LABELS[b.status]}, ${EVENT_TYPE_LABELS[b.eventType]} on ${formatDate(b.eventStartAt)}`}
-                  aside={<span className="tabular-nums">{formatMoney(b.totalPriceCents! - b.paidCents)}</span>}
+                  aside={
+                    <span className={cn("tabular-nums", eventOver(b, now) && "text-destructive")}>
+                      {formatMoney(b.totalPriceCents! - b.paidCents)}
+                    </span>
+                  }
                 />
               ))}
             </Section>
           </div>
+
+          <Stats stats={data.stats} />
 
           {data.outOfService.repair + data.outOfService.lost > 0 && (
             <p className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -183,19 +229,57 @@ export default function DashboardPage() {
   );
 }
 
+// An inquiry that's waited more than a day for an answer.
+const waitedLong = (b: DashboardBooking, now: number) => now - new Date(b.createdAt).getTime() > 24 * 60 * 60 * 1000;
+// Money still owed after the event is over is late, not just due.
+const eventOver = (b: DashboardBooking, now: number) => new Date(b.eventEndAt).getTime() < now;
+
+const WARN_TEXT = "text-amber-700 dark:text-amber-400";
+
 const venue = (b: DashboardBooking) => [b.venueName, b.city].filter(Boolean).join(", ") || "Pickup";
 
-function Tile({ label, value, alert, href }: { label: string; value: ReactNode; alert?: boolean; href?: string }) {
+// good: at the target, like nothing overdue. warn: worth a look. bad: needs action now.
+type Tone = "good" | "warn" | "bad";
+
+const TONES: Record<Tone, { box: string; text: string; icon: typeof CheckCircle2 }> = {
+  good: {
+    box: "border-green-600/40 bg-green-500/5 dark:border-green-500/40",
+    text: "text-green-700 dark:text-green-500",
+    icon: CheckCircle2,
+  },
+  warn: { box: "border-amber-500/60 bg-amber-500/5", text: WARN_TEXT, icon: AlertTriangle },
+  bad: { box: "border-destructive bg-destructive/5", text: "text-destructive", icon: AlertTriangle },
+};
+
+function Tile({
+  label,
+  value,
+  tone,
+  hint,
+  href,
+}: {
+  label: string;
+  value: ReactNode;
+  tone?: Tone;
+  // Says in words what the color means.
+  hint?: string;
+  href?: string;
+}) {
+  const style = tone && TONES[tone];
+  const Icon = style?.icon;
   const body = (
     <div
-      className={cn(
-        "h-full rounded-md border p-3",
-        alert && "border-destructive text-destructive",
-        href && "transition-colors hover:bg-muted",
-      )}
+      className={cn("h-full rounded-md border p-3", style?.box, href && "transition-colors hover:bg-muted")}
+      data-tone={tone}
     >
       <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="text-2xl font-semibold tabular-nums">{value}</div>
+      <div className={cn("text-2xl font-semibold tabular-nums", style?.text)}>{value}</div>
+      {hint && (
+        <div className={cn("mt-0.5 flex items-center gap-1 text-xs", style?.text ?? "text-muted-foreground")}>
+          {Icon && <Icon className="h-3 w-3 shrink-0" />}
+          {hint}
+        </div>
+      )}
     </div>
   );
   return href ? (
@@ -204,6 +288,52 @@ function Tile({ label, value, alert, href }: { label: string; value: ReactNode; 
     </Link>
   ) : (
     body
+  );
+}
+
+/** Completed bookings and what they earned, by event date. */
+function Stats({ stats }: { stats: DashboardStats }) {
+  return (
+    <Card data-testid="section-stats">
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base [&_svg]:h-4 [&_svg]:w-4">
+          <TrendingUp />
+          Totals
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <dl className="grid gap-4 sm:grid-cols-3">
+          <Stat
+            label={`Completed bookings in ${stats.year}`}
+            value={stats.thisYear.completed.toLocaleString("en-US")}
+            sub={`${stats.allTime.completed.toLocaleString("en-US")} all time`}
+          />
+          <Stat
+            label={`Earned in ${stats.year}`}
+            value={formatMoney(stats.thisYear.earnedCents)}
+            sub={`${formatMoney(stats.allTime.earnedCents)} all time`}
+          />
+          <Stat
+            label="Deposits held"
+            value={formatMoney(stats.depositsHeldCents)}
+            sub={`On ${stats.depositsHeldCount} upcoming ${stats.depositsHeldCount === 1 ? "booking" : "bookings"}, earned once completed`}
+          />
+        </dl>
+        <p className="mt-4 text-xs text-muted-foreground">
+          By event date. Earned is what was paid, less refunds, on completed bookings and any deposits kept on cancelled ones.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function Stat({ label, value, sub }: { label: string; value: string; sub: string }) {
+  return (
+    <div>
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="text-2xl font-semibold tabular-nums">{value}</dd>
+      <dd className="text-xs text-muted-foreground">{sub}</dd>
+    </div>
   );
 }
 

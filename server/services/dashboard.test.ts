@@ -151,6 +151,34 @@ describe("dashboard", () => {
     await counts(2, 2);
     expect((await getDashboard(now)).comingBack).toEqual([]);
   });
+
+  it("totals completed bookings and what they earned, this year and all time", async () => {
+    const { xlr } = await seedEquipment();
+    const gear: [number, number][] = [[xlr.id, 1]];
+    const lastYear = await confirmedBooking(gear, "2026-11-10T12:00", "2026-11-11T10:00");
+    const thisYear = await confirmedBooking(gear, "2027-02-10T12:00", "2027-02-11T10:00");
+    const cancelled = await confirmedBooking(gear, "2027-03-01T12:00", "2027-03-02T10:00");
+    const upcoming = await confirmedBooking(gear, "2027-06-01T12:00", "2027-06-02T10:00");
+    await confirmedBooking(gear, "2027-07-01T12:00", "2027-07-02T10:00");
+    await pay(lastYear, "200");
+    await pay(thisYear, "500");
+    await pay(cancelled, "100");
+    await pay(upcoming, "50");
+    // Nothing was packed, so they can be closed out.
+    await bookings.changeBookingStatus(actorId, lastYear, "completed");
+    await bookings.changeBookingStatus(actorId, thisYear, "completed");
+    await bookings.changeBookingStatus(actorId, cancelled, "cancelled");
+
+    const { stats } = await getDashboard(new Date("2027-03-20T15:00:00Z"));
+    expect(stats).toEqual({
+      year: 2027,
+      // The cancelled booking's kept deposit counts as earned, but not as a completed booking.
+      thisYear: { completed: 1, earnedCents: 60000 },
+      allTime: { completed: 2, earnedCents: 80000 },
+      depositsHeldCents: 5000,
+      depositsHeldCount: 1,
+    });
+  });
 });
 
 describe("booking history", () => {
@@ -163,7 +191,7 @@ describe("booking history", () => {
     await packout.returnUnit(actorId, id, returnUnitSchema.parse({ assetTag: "MIC-001", needsRepair: true }));
     await packout.setItemCounts(actorId, id, xlr.id, itemCountsSchema.parse({ out: 2, returned: 1, damaged: 1, lost: 1 }));
 
-    const history = await bookingHistory(id);
+    const { history, milestones } = await bookingHistory(id);
     expect(history.map((h) => h.summary)).toEqual([
       "Checked in 1 × Generic XLR 25ft, 1 needing repair and marked 1 × Generic XLR 25ft lost",
       "Checked in MIC-001 needing repair",
@@ -177,6 +205,12 @@ describe("booking history", () => {
       "Created the booking",
     ]);
     expect(history[8].detail).toBe("Price set to $500.00");
+    // The tracker's dates come from the same events.
+    expect(Object.keys(milestones).sort()).toEqual(["back", "confirmed", "created", "out"]);
+    expect(milestones.created?.at).toBe(history[9].at);
+    expect(milestones.confirmed?.at).toBe(history[5].at);
+    expect(milestones.out).toEqual({ at: history[3].at, actor: "Staff Member" });
+    expect(milestones.back?.at).toBe(history[0].at);
     expect(new Set(history.map((h) => h.actor))).toEqual(new Set(["Staff Member"]));
   });
 
@@ -195,7 +229,7 @@ describe("booking history", () => {
         requestDetails: "Two speakers",
       }),
     );
-    expect(await bookingHistory(id)).toMatchObject([{ actor: null, summary: "Sent a quote request from the website" }]);
+    expect((await bookingHistory(id)).history).toMatchObject([{ actor: null, summary: "Sent a quote request from the website" }]);
   });
 
   it("leaves out other bookings' changes", async () => {
@@ -203,6 +237,6 @@ describe("booking history", () => {
     const first = await confirmedBooking([[xlr.id, 1]], "2027-03-10T12:00", "2027-03-11T10:00");
     const second = await confirmedBooking([[xlr.id, 1]], "2027-03-10T12:00", "2027-03-11T10:00");
     await pay(second, "100");
-    expect((await bookingHistory(first)).map((h) => h.summary)).not.toContain("Recorded a $100.00 payment (Check)");
+    expect((await bookingHistory(first)).history.map((h) => h.summary)).not.toContain("Recorded a $100.00 payment (Check)");
   });
 });

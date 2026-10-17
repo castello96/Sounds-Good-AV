@@ -1,5 +1,5 @@
 import { and, asc, desc, eq, gt, gte, inArray, lt, sql, type SQL } from "drizzle-orm";
-import { UPCOMING_DAYS, type Dashboard, type DashboardBooking } from "@shared/dashboard";
+import { UPCOMING_DAYS, type Dashboard, type DashboardBooking, type DashboardStats } from "@shared/dashboard";
 import { addDays, toLocalInput } from "@shared/time";
 import { db } from "../db";
 import { addresses, bookings, customers } from "../db/schema";
@@ -69,6 +69,7 @@ export async function getDashboard(now = new Date()): Promise<Dashboard> {
     desc(balance),
   );
   const outOfService = await listOutOfService();
+  const stats = await getStats(Number(today.slice(0, 4)));
 
   const counts = emptyIssueCounts();
   for (const entry of outOfService) counts[entry.kind] += entry.quantity;
@@ -85,5 +86,37 @@ export async function getDashboard(now = new Date()): Promise<Dashboard> {
     balances,
     balanceTotalCents: balances.reduce((sum, b) => sum + b.totalPriceCents! - b.paidCents, 0),
     outOfService: counts,
+    stats,
+  };
+}
+
+/** Completed bookings and money earned, this year and all time, by event date. */
+async function getStats(year: number): Promise<DashboardStats> {
+  const thisYear = sql`${bookings.eventStartAt} >= ${localToUtc(`${year}-01-01T00:00`)}
+    and ${bookings.eventStartAt} < ${localToUtc(`${year + 1}-01-01T00:00`)}`;
+  const completed = sql`${bookings.status} = 'completed'`;
+  // Cancelled bookings count too, for any deposit that wasn't refunded.
+  const finished = sql`${bookings.status} in ('completed', 'cancelled')`;
+  const open = sql`${bookings.status} in ('inquiry', 'quoted', 'confirmed')`;
+  // Money totals can pass what an int holds, and come back from Postgres as strings.
+  const total = (where: SQL) => sql<string>`coalesce(sum(${paidCents}) filter (where ${where}), 0)::bigint`;
+  const count = (where: SQL) => sql<number>`(count(*) filter (where ${where}))::int`;
+
+  const [row] = await db
+    .select({
+      completed: count(completed),
+      completedThisYear: count(sql`${completed} and ${thisYear}`),
+      earned: total(finished),
+      earnedThisYear: total(sql`${finished} and ${thisYear}`),
+      held: total(open),
+      heldCount: count(sql`${open} and ${paidCents} > 0`),
+    })
+    .from(bookings);
+  return {
+    year,
+    thisYear: { completed: row.completedThisYear, earnedCents: Number(row.earnedThisYear) },
+    allTime: { completed: row.completed, earnedCents: Number(row.earned) },
+    depositsHeldCents: Number(row.held),
+    depositsHeldCount: row.heldCount,
   };
 }
