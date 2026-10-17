@@ -61,7 +61,7 @@ export default function Mixer() {
             Every show starts with a soundcheck. Here's yours. Go ahead, push some faders.
           </SectionHeading>
           <p className="-mt-6 font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground">
-            Heads up: it plays real sound. Check your volume first.
+            Heads up: it plays real sound. Check your volume first and then bring up the mains.
           </p>
         </div>
 
