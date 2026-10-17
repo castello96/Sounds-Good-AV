@@ -9,6 +9,7 @@ export const CONTACT = {
 };
 
 export const NAV_LINKS = [
+  { label: "Soundcheck", href: "#soundcheck" },
   { label: "What we do", href: "#services" },
   { label: "How it works", href: "#how" },
   { label: "About", href: "#about" },

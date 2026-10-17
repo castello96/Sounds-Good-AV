@@ -16,7 +16,7 @@ export default function Navigation() {
           <Logo />
         </a>
 
-        <div className="hidden items-center gap-1 md:flex">
+        <div className="hidden items-center gap-1 lg:flex">
           {NAV_LINKS.map((link) => (
             <a
               key={link.href}
@@ -35,7 +35,7 @@ export default function Navigation() {
           </Button>
         </div>
 
-        <div className="flex items-center gap-1 md:hidden">
+        <div className="flex items-center gap-1 lg:hidden">
           <ThemeToggle />
           <Button
             variant="ghost"
@@ -51,7 +51,7 @@ export default function Navigation() {
       </div>
 
       {isOpen && (
-        <div className="border-t bg-background px-4 pb-4 pt-2 md:hidden">
+        <div className="border-t bg-background px-4 pb-4 pt-2 lg:hidden">
           {NAV_LINKS.map((link) => (
             <a
               key={link.href}
