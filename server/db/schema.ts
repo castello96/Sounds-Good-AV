@@ -133,10 +133,14 @@ export const inventory = pgTable(
     condition: text("condition"),
     notes: text("notes"),
     purchasedAt: date("purchased_at"),
+    // The staff member who brought this unit in from their own gear, so it can
+    // be traced back to them. Null means the company bought it.
+    contributedBy: integer("contributed_by").references(() => users.id),
     ...timestamps,
   },
   (t) => [
     index().on(t.equipmentId),
+    index().on(t.contributedBy),
     // Target for the composite FK on booking_item_units.
     unique("inventory_id_equipment_id_unique").on(t.id, t.equipmentId),
   ],

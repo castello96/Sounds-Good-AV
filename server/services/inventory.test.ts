@@ -37,7 +37,8 @@ async function seedEquipment() {
   return { department, category, sm58 };
 }
 
-const units = (input: object) => createUnitsSchema.parse(input);
+// Company-bought unless a test says otherwise.
+const units = (input: object) => createUnitsSchema.parse({ contributedBy: null, ...input });
 
 describe("sequentialAssetTags", () => {
   it("counts up and keeps zero padding", () => {
@@ -285,6 +286,34 @@ describe("units", () => {
       units({ assetTag: "MIC-001", quantity: 1, serialNumber: "  ", notes: "", purchasedAt: "" }),
     );
     expect(unit).toMatchObject({ serialNumber: null, notes: null, purchasedAt: null, status: "active" });
+  });
+
+  it("must say who brought a unit in, or that the company bought it", () => {
+    expect(createUnitsSchema.safeParse({ assetTag: "MIC-001", quantity: 1 }).success).toBe(false);
+    expect(createUnitsSchema.parse({ assetTag: "MIC-001", quantity: 1, contributedBy: 0 }).contributedBy).toBeNull();
+  });
+
+  it("records who brought a unit in", async () => {
+    const { sm58 } = await seedEquipment();
+    const [mine, bought] = await inventory.createUnits(
+      actorId,
+      sm58.id,
+      units({ assetTag: "MIC-001", quantity: 2, contributedBy: actorId }),
+    );
+    expect(mine).toMatchObject({ contributedBy: actorId, contributorName: "Staff Member" });
+
+    // Changing it to Company clears it, and the rest of the batch kept theirs.
+    expect(await inventory.updateUnit(actorId, bought.id, { contributedBy: null })).toMatchObject({
+      contributedBy: null,
+      contributorName: null,
+    });
+    const detail = await inventory.getEquipment(sm58.id);
+    expect(detail.units.map((u) => u.contributorName)).toEqual(["Staff Member", null]);
+
+    await expect(inventory.updateUnit(actorId, mine.id, { contributedBy: 9999 })).rejects.toMatchObject({
+      status: 409,
+      message: "That staff member no longer exists",
+    });
   });
 
   it("won't delete a unit that has been on a booking", async () => {
