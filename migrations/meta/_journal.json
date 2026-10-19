@@ -50,6 +50,13 @@
       "when": 1792012816877,
       "tag": "0006_gear_issues",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792425053055,
+      "tag": "0007_gear_contributors",
+      "breakpoints": true
     }
   ]
 }

@@ -1,10 +1,12 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, useWatch } from "react-hook-form";
 import { Link, useLocation } from "wouter";
 import { AlertTriangle, ArrowLeft, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 import type { z } from "zod";
 import {
+  COMPANY_BOUGHT,
   createUnitsSchema,
   EQUIPMENT_TRACKING_LABELS,
   INVENTORY_STATUS_LABELS,
@@ -15,6 +17,7 @@ import {
   type EquipmentDetail,
   type InventoryUnit,
 } from "@shared/inventory";
+import type { PublicUser } from "@shared/users";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -40,6 +43,28 @@ import {
 } from "../inventory";
 
 const STATUS_OPTIONS = [{ options: INVENTORY_STATUSES.map((s) => ({ value: s, label: INVENTORY_STATUS_LABELS[s] })) }];
+
+/**
+ * Who a unit can be marked as brought in by: Company, then active staff. A
+ * contributor who has since been deactivated stays listed on their own units.
+ */
+function useContributorOptions(current?: number | null) {
+  const { data: users } = useQuery({
+    queryKey: ["/api/admin/users"],
+    queryFn: () => api<PublicUser[]>("GET", "/api/admin/users"),
+  });
+  const staff = (users ?? []).filter((user) => user.isActive || user.id === current);
+  return [
+    { options: [{ value: String(COMPANY_BOUGHT), label: "Company (bought by the business)" }] },
+    {
+      label: "Staff",
+      options: staff.map((user) => ({
+        value: String(user.id),
+        label: `${user.firstName} ${user.lastName}${user.isActive ? "" : " (inactive)"}`,
+      })),
+    },
+  ];
+}
 
 type DialogState =
   | { kind: "edit" }
@@ -150,6 +175,7 @@ export default function EquipmentPage({ params }: { params: { id: string } }) {
                   <TableHead>Status</TableHead>
                   <TableHead>Condition</TableHead>
                   <TableHead>Purchased</TableHead>
+                  <TableHead>Brought in by</TableHead>
                   <TableHead>Notes</TableHead>
                   <TableHead className="w-12" />
                 </TableRow>
@@ -157,7 +183,7 @@ export default function EquipmentPage({ params }: { params: { id: string } }) {
               <TableBody>
                 {equipment.units.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-muted-foreground">
+                    <TableCell colSpan={8} className="text-muted-foreground">
                       No units yet. Add one for each physical item you own.
                     </TableCell>
                   </TableRow>
@@ -171,6 +197,9 @@ export default function EquipmentPage({ params }: { params: { id: string } }) {
                     </TableCell>
                     <TableCell>{unit.condition}</TableCell>
                     <TableCell>{unit.purchasedAt}</TableCell>
+                    <TableCell className={unit.contributorName ? undefined : "text-muted-foreground"}>
+                      {unit.contributorName ?? "Company"}
+                    </TableCell>
                     <TableCell className="max-w-64 truncate" title={unit.notes ?? undefined}>
                       {unit.notes}
                     </TableCell>
@@ -247,6 +276,7 @@ function AddUnitsDialog({ equipment, onClose }: { equipment: EquipmentDetail; on
       notes: "",
     },
   });
+  const contributors = useContributorOptions();
   const [assetTag, quantity] = useWatch({ control: form.control, name: ["assetTag", "quantity"] });
   const count = Number(quantity);
   const preview = tagPreview(String(assetTag ?? "").trim().toUpperCase(), count);
@@ -257,7 +287,7 @@ function AddUnitsDialog({ equipment, onClose }: { equipment: EquipmentDetail; on
         invalidateInventory();
         onClose();
       })
-      .catch((error: Error) => form.setError("assetTag", { message: error.message }));
+      .catch((error: Error) => form.setError(unitErrorField(error), { message: error.message }));
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -282,6 +312,15 @@ function AddUnitsDialog({ equipment, onClose }: { equipment: EquipmentDetail; on
               <TextField control={form.control} name="purchasedAt" label="Purchased" type="date" />
             </div>
             <TextField control={form.control} name="condition" label="Condition" description="Like New, Good or Worn." />
+            <SelectField
+              control={form.control}
+              name="contributedBy"
+              label="Brought in by"
+              placeholder="Choose"
+              description={"Whose gear this was before it joined the rentals. Pick Company if the business bought it."}
+              groups={contributors}
+              numeric
+            />
             <TextareaField control={form.control} name="notes" label="Notes" />
             <DialogFooter>
               <Button type="button" variant="outline" onClick={onClose}>
@@ -296,6 +335,14 @@ function AddUnitsDialog({ equipment, onClose }: { equipment: EquipmentDetail; on
       </DialogContent>
     </Dialog>
   );
+}
+
+/** Which field a failed unit save should show its message on. */
+function unitErrorField(error: Error) {
+  const message = error.message.toLowerCase();
+  if (message.includes("serial")) return "serialNumber";
+  if (message.includes("staff member")) return "contributedBy";
+  return "assetTag";
 }
 
 /** "Creates MIC-001 to MIC-010" for a bulk add, or nothing when it can't tell yet. */
@@ -318,8 +365,10 @@ function EditUnitDialog({ unit, onClose }: { unit: InventoryUnit; onClose: () =>
       condition: unit.condition ?? "",
       purchasedAt: unit.purchasedAt ?? "",
       notes: unit.notes ?? "",
+      contributedBy: unit.contributedBy ?? COMPANY_BOUGHT,
     },
   });
+  const contributors = useContributorOptions(unit.contributedBy);
 
   const onSubmit = (values: UpdateUnitValues) =>
     api("PATCH", `/api/admin/units/${unit.id}`, values)
@@ -327,11 +376,7 @@ function EditUnitDialog({ unit, onClose }: { unit: InventoryUnit; onClose: () =>
         invalidateInventory();
         onClose();
       })
-      .catch((error: Error) =>
-        form.setError(error.message.toLowerCase().includes("serial") ? "serialNumber" : "assetTag", {
-          message: error.message,
-        }),
-      );
+      .catch((error: Error) => form.setError(unitErrorField(error), { message: error.message }));
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -350,6 +395,13 @@ function EditUnitDialog({ unit, onClose }: { unit: InventoryUnit; onClose: () =>
               <TextField control={form.control} name="purchasedAt" label="Purchased" type="date" />
             </div>
             <TextField control={form.control} name="condition" label="Condition" />
+            <SelectField
+              control={form.control}
+              name="contributedBy"
+              label="Brought in by"
+              groups={contributors}
+              numeric
+            />
             <TextareaField control={form.control} name="notes" label="Notes" />
             <DialogFooter>
               <Button type="button" variant="outline" onClick={onClose}>

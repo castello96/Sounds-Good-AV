@@ -1,4 +1,4 @@
-import { and, asc, count, eq, inArray, notInArray, sql } from "drizzle-orm";
+import { and, asc, count, eq, inArray, notInArray, sql, type SQL } from "drizzle-orm";
 import type { z } from "zod";
 import {
   formatAssetTag,
@@ -21,7 +21,7 @@ import {
   type updateUnitSchema,
 } from "@shared/inventory";
 import { db, withActor, type Tx } from "../db";
-import { categories, departments, equipment, equipmentTags, inventory, tags } from "../db/schema";
+import { categories, departments, equipment, equipmentTags, inventory, tags, users } from "../db/schema";
 import { notFound, ServiceError, write } from "./errors";
 import { emptyIssueCounts, ensureWithinOwned, openIssueCounts } from "./gearIssues";
 
@@ -293,7 +293,7 @@ export async function getEquipment(id: number): Promise<EquipmentDetail> {
     unitCounts(id),
     openIssueCounts(db, [id]),
     tagsByEquipment(id),
-    db.select().from(inventory).where(eq(inventory.equipmentId, id)).orderBy(asc(inventory.assetTag)),
+    unitsWhere(eq(inventory.equipmentId, id)),
   ]);
   notFound(row, "Equipment");
   return {
@@ -301,7 +301,7 @@ export async function getEquipment(id: number): Promise<EquipmentDetail> {
     unitCounts: counts.get(id) ?? emptyCounts(),
     issueCounts: issues.get(id) ?? emptyIssueCounts(),
     tags: tagMap.get(id) ?? [],
-    units: units.map(toUnit),
+    units,
     nextAssetTag: row.tracking === "units" ? await nextAssetTag(row.tagPrefix) : null,
   };
 }
@@ -385,24 +385,38 @@ export async function deleteEquipment(actorId: number, id: number) {
 // Units
 // ---------------------------------------------------------------------------
 
-function toUnit(row: typeof inventory.$inferSelect): InventoryUnit {
-  return {
-    id: row.id,
-    equipmentId: row.equipmentId,
-    assetTag: row.assetTag,
-    serialNumber: row.serialNumber,
-    status: row.status,
-    condition: row.condition,
-    notes: row.notes,
-    purchasedAt: row.purchasedAt,
-  };
+const MISSING_CONTRIBUTOR = "That staff member no longer exists";
+
+/** Units with their contributor's name, by asset tag. */
+async function unitsWhere(where: SQL): Promise<InventoryUnit[]> {
+  const rows = await db
+    .select({
+      unit: inventory,
+      contributorName: sql<string | null>`${users.firstName} || ' ' || ${users.lastName}`,
+    })
+    .from(inventory)
+    .leftJoin(users, eq(users.id, inventory.contributedBy))
+    .where(where)
+    .orderBy(asc(inventory.assetTag));
+  return rows.map(({ unit, contributorName }) => ({
+    id: unit.id,
+    equipmentId: unit.equipmentId,
+    assetTag: unit.assetTag,
+    serialNumber: unit.serialNumber,
+    status: unit.status,
+    condition: unit.condition,
+    notes: unit.notes,
+    purchasedAt: unit.purchasedAt,
+    contributedBy: unit.contributedBy,
+    contributorName,
+  }));
 }
 
 /** Adds one unit, or several with sequential asset tags. All or nothing. */
 export async function createUnits(actorId: number, equipmentId: number, input: CreateUnitsData): Promise<InventoryUnit[]> {
   const { assetTag, quantity, ...fields } = input;
   const tags = sequentialAssetTags(assetTag, quantity);
-  return write(
+  const rows = await write(
     () =>
       withActor(actorId, async (tx) => {
         const [item] = await tx
@@ -414,32 +428,34 @@ export async function createUnits(actorId: number, equipmentId: number, input: C
           throw new ServiceError(409, "This equipment is tracked by quantity, so it doesn't have units. Edit its quantity instead.");
         }
 
-        const rows = await tx
+        return tx
           .insert(inventory)
           .values(tags.map((tag) => ({ ...fields, equipmentId, assetTag: tag })))
-          .returning();
-        return rows.map(toUnit);
+          .returning({ id: inventory.id });
       }),
     {
       unique:
         quantity === 1
           ? "That asset tag is already in use"
           : `One of the asset tags ${tags[0]} to ${tags[tags.length - 1]} is already in use`,
-      foreignKey: "That equipment no longer exists",
+      // The equipment was checked above, so a missing key here is the contributor.
+      foreignKey: MISSING_CONTRIBUTOR,
     },
   );
+  return unitsWhere(inArray(inventory.id, rows.map((row) => row.id)));
 }
 
 export async function updateUnit(actorId: number, id: number, input: UpdateUnitData): Promise<InventoryUnit> {
-  return write(
+  await write(
     () =>
       withActor(actorId, async (tx) => {
-        const [row] = await tx.update(inventory).set(input).where(eq(inventory.id, id)).returning();
+        const [row] = await tx.update(inventory).set(input).where(eq(inventory.id, id)).returning({ id: inventory.id });
         notFound(row, "Unit");
-        return toUnit(row);
       }),
-    { unique: "That asset tag is already in use" },
+    { unique: "That asset tag is already in use", foreignKey: MISSING_CONTRIBUTOR },
   );
+  const [unit] = await unitsWhere(eq(inventory.id, id));
+  return unit;
 }
 
 export async function deleteUnit(actorId: number, id: number) {

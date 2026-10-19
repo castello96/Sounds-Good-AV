@@ -102,6 +102,9 @@ export interface InventoryUnit {
   condition: string | null;
   notes: string | null;
   purchasedAt: string | null;
+  // Who brought this unit in from their own gear. Null means the company bought it.
+  contributedBy: number | null;
+  contributorName: string | null;
 }
 
 export interface EquipmentDetail extends EquipmentSummary {
@@ -165,7 +168,17 @@ const unitFields = {
   condition: optionalText(100),
   notes: optionalText(2000),
   purchasedAt: optionalDate,
+  // A staff member's id, or null when the company bought it. Selects can't hold
+  // null, so the portal sends COMPANY_BOUGHT (0) for that.
+  contributedBy: z
+    .number({ required_error: "Choose who brought it in, or Company", invalid_type_error: "Choose who brought it in, or Company" })
+    .int()
+    .min(0)
+    .nullable()
+    .transform((v) => v || null),
 };
+
+export const COMPANY_BOUGHT = 0;
 
 const assetTag = required("Asset tag", 50).transform((v) => v.toUpperCase());
 

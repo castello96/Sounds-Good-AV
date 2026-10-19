@@ -36,11 +36,11 @@ async function seedEquipment() {
     actorId,
     equipmentSchema.parse({ categoryId: mics.id, sku: "MIC-SM58", brand: "Shure", model: "SM58" }),
   );
-  await inventoryService.createUnits(actorId, sm58.id, createUnitsSchema.parse({ assetTag: "MIC-001", quantity: 3 }));
+  await inventoryService.createUnits(actorId, sm58.id, createUnitsSchema.parse({ contributedBy: null, assetTag: "MIC-001", quantity: 3 }));
   await inventoryService.createUnits(
     actorId,
     sm58.id,
-    createUnitsSchema.parse({ assetTag: "MIC-004", quantity: 1, status: "maintenance" }),
+    createUnitsSchema.parse({ contributedBy: null, assetTag: "MIC-004", quantity: 1, status: "maintenance" }),
   );
   const xlr = await inventoryService.createEquipment(
     actorId,
