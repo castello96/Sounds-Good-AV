@@ -1,8 +1,17 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import { Link } from "wouter";
 import { AlertTriangle, ArrowLeft, Check, CheckCircle2, X, XCircle } from "lucide-react";
 import { BOOKING_STATUS_LABELS, type BookingDetail, type BookingItem, type PackedUnit } from "@shared/bookings";
-import { packUnitSchema, returnUnitSchema } from "@shared/packout";
+import { packUnitSchema, returnUnitSchema, type PackableUnit } from "@shared/packout";
 import { formatRange } from "@shared/time";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,23 +25,31 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { api } from "../api";
-import { customerName, invalidateBookings, isOverdue, STATUS_BADGE, useBooking } from "../bookings";
+import { customerName, invalidateBookings, isOverdue, STATUS_BADGE, useBooking, usePackableUnits } from "../bookings";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { equipmentName, invalidateInventory } from "../inventory";
 
 type Mode = "pack" | "return";
 type Feedback = { ok: boolean; message: string } | null;
+type Suggestion = { assetTag: string; name: string };
+type TagBoxHandle = { fill: (assetTag: string) => void };
+
+const MAX_SUGGESTIONS = 8;
 
 /**
  * Packing gear out and checking it back in, laid out for a tablet in the
  * warehouse. Staff type each asset tag (a barcode scanner can type it later)
- * and press Enter. Gear tracked by quantity is counted by hand.
+ * and press Enter, or pick it from the suggestions. On the Return tab, tapping
+ * a unit that's still out fills in its tag. Gear tracked by quantity is
+ * counted by hand.
  */
 export default function PackPage({ params }: { params: { id: string } }) {
   const id = Number(params.id);
   const { data: booking, isLoading, error } = useBooking(id);
   const [chosenMode, setMode] = useState<Mode | null>(null);
   const [lostUnit, setLostUnit] = useState<PackedUnit | null>(null);
+  const tagBox = useRef<TagBoxHandle>(null);
+  const { data: packable } = usePackableUnits(id, booking?.status === "confirmed");
   const { toast } = useToast();
 
   if (isLoading) return <p className="text-muted-foreground">Loading...</p>;
@@ -92,7 +109,7 @@ export default function PackPage({ params }: { params: { id: string } }) {
               </TabsTrigger>
             </TabsList>
           </Tabs>
-          <TagBox key={mode} mode={mode} booking={booking} />
+          <TagBox key={mode} ref={tagBox} mode={mode} booking={booking} suggestions={suggestionsFor(booking, mode, packable)} />
         </>
       )}
 
@@ -125,6 +142,7 @@ export default function PackPage({ params }: { params: { id: string } }) {
                 run("DELETE", `/api/admin/bookings/${id}/units/${unit.id}`, undefined, `Couldn't unpack ${unit.assetTag}`)
               }
               onLost={setLostUnit}
+              onPick={(unit) => tagBox.current?.fill(unit.assetTag)}
               onCounts={(counts) =>
                 run("PATCH", `/api/admin/bookings/${id}/items/${item.equipmentId}/counts`, counts, "Couldn't save the counts")
               }
@@ -146,6 +164,29 @@ export default function PackPage({ params }: { params: { id: string } }) {
       )}
     </div>
   );
+}
+
+/**
+ * Tags to suggest: on the Return tab, units still out; when packing, free
+ * units of gear that isn't fully packed yet.
+ */
+function suggestionsFor(booking: BookingDetail, mode: Mode, packable: PackableUnit[] | undefined): Suggestion[] {
+  if (mode === "return") {
+    return booking.items
+      .flatMap((item) =>
+        item.units
+          .filter((u) => !u.returnedAt && !u.lostAt)
+          .map((u) => ({ assetTag: u.assetTag, name: equipmentName(item) })),
+      )
+      .sort((a, b) => a.assetTag.localeCompare(b.assetTag));
+  }
+  const unpacked = new Map(
+    booking.items.filter((i) => i.tracking === "units" && i.out < i.quantity).map((i) => [i.equipmentId, equipmentName(i)]),
+  );
+  return (packable ?? []).flatMap((u) => {
+    const name = unpacked.get(u.equipmentId);
+    return name ? [{ assetTag: u.assetTag, name }] : [];
+  });
 }
 
 // Packing changes unit statuses too, which the inventory pages show.
@@ -171,18 +212,69 @@ function progress(booking: BookingDetail, mode: Mode) {
 }
 
 /** The big asset tag box. Enter submits and it's ready for the next tag straight away. */
-function TagBox({ mode, booking }: { mode: Mode; booking: BookingDetail }) {
+const TagBox = forwardRef<TagBoxHandle, { mode: Mode; booking: BookingDetail; suggestions: Suggestion[] }>(function TagBox(
+  { mode, booking, suggestions },
+  ref,
+) {
   const [tag, setTag] = useState("");
   const [needsRepair, setNeedsRepair] = useState(false);
   const [notes, setNotes] = useState("");
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [busy, setBusy] = useState(false);
+  const [listOpen, setListOpen] = useState(false);
+  // The highlighted suggestion. None until the arrow keys move, so a scanner's
+  // Enter submits what it typed.
+  const [active, setActive] = useState(-1);
+  const form = useRef<HTMLFormElement>(null);
   const input = useRef<HTMLInputElement>(null);
+  const notesBox = useRef<HTMLTextAreaElement>(null);
+  const submitButton = useRef<HTMLButtonElement>(null);
+  const focusAfterFill = useRef(false);
 
   useEffect(() => {
     // Selected, so after a mistake the next tag replaces it instead of adding on.
     if (!busy) input.current?.select();
   }, [busy]);
+
+  useEffect(() => {
+    // Waits for the render, since the button is disabled until there's a tag.
+    if (!focusAfterFill.current) return;
+    focusAfterFill.current = false;
+    (mode === "return" ? notesBox.current : submitButton.current)?.focus({ preventScroll: true });
+  }, [tag, mode]);
+
+  const query = tag.trim().toUpperCase();
+  const matches = suggestions
+    .filter((s) => s.assetTag.includes(query) || s.name.toUpperCase().includes(query))
+    .slice(0, MAX_SUGGESTIONS);
+  const showList = listOpen && !busy && matches.length > 0;
+
+  /** Fills in a tag, then moves on to the notes, or to Pack. */
+  const fill = (assetTag: string) => {
+    focusAfterFill.current = true;
+    setTag(assetTag);
+    setFeedback(null);
+    setListOpen(false);
+    setActive(-1);
+    form.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  };
+  useImperativeHandle(ref, () => ({ fill }));
+
+  const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      setListOpen(true);
+      const last = matches.length - 1;
+      setActive((i) => (e.key === "ArrowDown" ? Math.min(i + 1, last) : Math.max(i - 1, -1)));
+    } else if (e.key === "Enter" && showList && matches[active]) {
+      e.preventDefault();
+      fill(matches[active].assetTag);
+    } else if (e.key === "Escape" && showList) {
+      e.preventDefault();
+      setListOpen(false);
+      setActive(-1);
+    }
+  };
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -194,6 +286,7 @@ function TagBox({ mode, booking }: { mode: Mode; booking: BookingDetail }) {
     const { assetTag } = parsed.data;
 
     setBusy(true);
+    setListOpen(false);
     api<BookingDetail>("POST", `/api/admin/bookings/${booking.id}/${mode}`, parsed.data)
       .then((updated) => {
         refresh();
@@ -213,25 +306,73 @@ function TagBox({ mode, booking }: { mode: Mode; booking: BookingDetail }) {
   };
 
   return (
-    <form onSubmit={submit} className="space-y-3 rounded-lg border p-4">
+    <form ref={form} onSubmit={submit} className="scroll-mt-4 space-y-3 rounded-lg border p-4">
       <Label htmlFor="asset-tag" className="text-base">
         {mode === "pack" ? "Asset tag to pack" : "Asset tag coming back"}
       </Label>
       <div className="flex gap-2">
-        <Input
-          id="asset-tag"
-          ref={input}
-          value={tag}
-          onChange={(e) => setTag(e.target.value)}
-          placeholder="MIC-001"
-          autoComplete="off"
-          autoCapitalize="characters"
-          spellCheck={false}
-          disabled={busy}
-          className="h-14 font-mono text-2xl uppercase"
-          data-testid="input-asset-tag"
-        />
+        <div className="relative flex-1">
+          <Input
+            id="asset-tag"
+            ref={input}
+            value={tag}
+            onChange={(e) => {
+              setTag(e.target.value);
+              setListOpen(true);
+              setActive(-1);
+            }}
+            onKeyDown={onKeyDown}
+            // Tapping the box lists what's left. Focus alone doesn't, so the list
+            // stays out of the way between scans.
+            onClick={() => setListOpen(true)}
+            onBlur={() => setListOpen(false)}
+            role="combobox"
+            aria-expanded={showList}
+            aria-controls="asset-tag-suggestions"
+            aria-autocomplete="list"
+            aria-activedescendant={showList && matches[active] ? `suggestion-${matches[active].assetTag}` : undefined}
+            placeholder="MIC-001"
+            autoComplete="off"
+            autoCapitalize="characters"
+            spellCheck={false}
+            disabled={busy}
+            className="h-14 font-mono text-2xl uppercase"
+            data-testid="input-asset-tag"
+          />
+          {showList && (
+            <ul
+              id="asset-tag-suggestions"
+              role="listbox"
+              aria-label={mode === "pack" ? "Units you can pack" : "Units still out"}
+              className="absolute inset-x-0 top-full z-20 mt-1 max-h-80 overflow-y-auto rounded-md border bg-popover p-1
+                text-popover-foreground shadow-md"
+              data-testid="list-tag-suggestions"
+            >
+              {matches.map((s, i) => (
+                <li
+                  key={s.assetTag}
+                  id={`suggestion-${s.assetTag}`}
+                  role="option"
+                  aria-selected={i === active}
+                  // Before the input's blur closes the list.
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => fill(s.assetTag)}
+                  onMouseEnter={() => setActive(i)}
+                  className={cn(
+                    "flex cursor-pointer items-baseline gap-3 rounded-sm px-3 py-3",
+                    i === active && "bg-accent text-accent-foreground",
+                  )}
+                  data-testid={`option-tag-${s.assetTag}`}
+                >
+                  <span className="font-mono text-lg">{s.assetTag}</span>
+                  <span className="truncate text-sm text-muted-foreground">{s.name}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
         <Button
+          ref={submitButton}
           type="submit"
           size="lg"
           className="h-14 px-8 text-base"
@@ -243,6 +384,9 @@ function TagBox({ mode, booking }: { mode: Mode; booking: BookingDetail }) {
       </div>
       {mode === "return" && (
         <div className="space-y-3">
+          {suggestions.length > 0 && (
+            <p className="text-sm text-muted-foreground">Or tap a tag on the gear below to fill it in.</p>
+          )}
           <label className="flex items-center gap-2 text-sm">
             <Checkbox
               checked={needsRepair}
@@ -252,6 +396,7 @@ function TagBox({ mode, booking }: { mode: Mode; booking: BookingDetail }) {
             Needs repair (send it to maintenance)
           </label>
           <Textarea
+            ref={notesBox}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             placeholder="Notes on its condition, if any"
@@ -278,7 +423,7 @@ function TagBox({ mode, booking }: { mode: Mode; booking: BookingDetail }) {
       )}
     </form>
   );
-}
+});
 
 function ItemCard({
   booking,
@@ -287,6 +432,7 @@ function ItemCard({
   live,
   onUnpack,
   onLost,
+  onPick,
   onCounts,
 }: {
   booking: BookingDetail;
@@ -295,6 +441,7 @@ function ItemCard({
   live: boolean;
   onUnpack: (unit: PackedUnit) => void;
   onLost: (unit: PackedUnit) => void;
+  onPick: (unit: PackedUnit) => void;
   onCounts: (counts: Counts) => Promise<unknown>;
 }) {
   const done = mode === "pack" ? item.out >= item.quantity : item.out > 0 && item.returned + item.lost >= item.out;
@@ -329,7 +476,15 @@ function ItemCard({
         ) : (
           <div className="flex flex-wrap gap-2">
             {item.units.map((unit) => (
-              <UnitChip key={unit.id} unit={unit} mode={mode} live={live} onUnpack={onUnpack} onLost={onLost} />
+              <UnitChip
+                key={unit.id}
+                unit={unit}
+                mode={mode}
+                live={live}
+                onUnpack={onUnpack}
+                onLost={onLost}
+                onPick={onPick}
+              />
             ))}
           </div>
         )}
@@ -344,15 +499,18 @@ function UnitChip({
   live,
   onUnpack,
   onLost,
+  onPick,
 }: {
   unit: PackedUnit;
   mode: Mode;
   live: boolean;
   onUnpack: (unit: PackedUnit) => void;
   onLost: (unit: PackedUnit) => void;
+  onPick: (unit: PackedUnit) => void;
 }) {
   const state = unit.returnedAt ? (unit.damaged ? "repair" : "back") : unit.lostAt ? "lost" : "out";
   const stillOut = state === "out";
+  const pickable = live && stillOut && mode === "return";
   return (
     <div
       className={cn(
@@ -366,7 +524,20 @@ function UnitChip({
       data-testid={`chip-unit-${unit.assetTag}`}
     >
       {state === "back" && <Check className="h-3.5 w-3.5" />}
-      <span className="font-mono">{unit.assetTag}</span>
+      {pickable ? (
+        <button
+          type="button"
+          onClick={() => onPick(unit)}
+          className="rounded-full font-mono underline-offset-4 hover:underline focus-visible:outline-none
+            focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={`Fill in ${unit.assetTag}`}
+          data-testid={`button-pick-${unit.assetTag}`}
+        >
+          {unit.assetTag}
+        </button>
+      ) : (
+        <span className="font-mono">{unit.assetTag}</span>
+      )}
       {state === "repair" && <span className="text-xs">repair</span>}
       {state === "lost" && <span className="text-xs">lost</span>}
       {live && stillOut && mode === "pack" && (
@@ -380,7 +551,7 @@ function UnitChip({
           <X className="h-3.5 w-3.5" />
         </button>
       )}
-      {live && stillOut && mode === "return" && (
+      {pickable && (
         <button
           type="button"
           onClick={() => onLost(unit)}

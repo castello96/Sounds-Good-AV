@@ -100,6 +100,12 @@ export function bookingRouter() {
     }),
   );
 
+  router.get(
+    "/bookings/:id/packable",
+    handle(async (req, res) => {
+      res.json(await packout.listPackableUnits(idParam(req)));
+    }),
+  );
   router.post(
     "/bookings/:id/pack",
     handle(async (req, res) => {

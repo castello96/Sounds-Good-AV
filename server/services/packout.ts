@@ -1,9 +1,9 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull, notExists, sql } from "drizzle-orm";
 import { BOOKING_STATUS_LABELS } from "@shared/bookings";
 import { INVENTORY_STATUS_LABELS } from "@shared/inventory";
-import type { ItemCountsData, LostUnitData, ReturnUnitData } from "@shared/packout";
-import { withActor, type Tx } from "../db";
-import { bookingItems, bookingItemUnits, equipment, inventory } from "../db/schema";
+import type { ItemCountsData, LostUnitData, PackableUnit, ReturnUnitData } from "@shared/packout";
+import { db, withActor, type Tx } from "../db";
+import { bookingItems, bookingItemUnits, bookings, equipment, inventory } from "../db/schema";
 import { getBooking, itemUnitsPacked, lockBooking } from "./bookings";
 import { notFound, ServiceError, write } from "./errors";
 import { ensureWithinOwned, syncBookingIssue } from "./gearIssues";
@@ -122,6 +122,40 @@ export async function packUnit(actorId: number, bookingId: number, assetTag: str
     { unique: `${assetTag} is already out on another booking.` },
   );
   return getBooking(bookingId);
+}
+
+/**
+ * Units that could be packed for a booking right now: in service, of gear on
+ * the booking, and not out anywhere or already packed for it. Used to suggest
+ * tags while packing, so it doesn't check whether an item is fully packed.
+ */
+export async function listPackableUnits(bookingId: number): Promise<PackableUnit[]> {
+  const [booking] = await db.select({ id: bookings.id }).from(bookings).where(eq(bookings.id, bookingId));
+  notFound(booking, "Booking");
+  const packedHere = db
+    .select({ id: bookingItemUnits.id })
+    .from(bookingItemUnits)
+    .innerJoin(bookingItems, eq(bookingItems.id, bookingItemUnits.bookingItemId))
+    .where(and(eq(bookingItemUnits.inventoryId, inventory.id), eq(bookingItems.bookingId, bookingId)));
+  const outElsewhere = db
+    .select({ id: bookingItemUnits.id })
+    .from(bookingItemUnits)
+    .where(
+      and(
+        eq(bookingItemUnits.inventoryId, inventory.id),
+        isNull(bookingItemUnits.returnedAt),
+        isNull(bookingItemUnits.lostAt),
+      ),
+    );
+  return db
+    .select({ assetTag: inventory.assetTag, equipmentId: inventory.equipmentId })
+    .from(inventory)
+    .innerJoin(
+      bookingItems,
+      and(eq(bookingItems.equipmentId, inventory.equipmentId), eq(bookingItems.bookingId, bookingId)),
+    )
+    .where(and(eq(inventory.status, "active"), notExists(packedHere), notExists(outElsewhere)))
+    .orderBy(inventory.assetTag);
 }
 
 /** Takes a unit back off a booking it was packed for by mistake. */
