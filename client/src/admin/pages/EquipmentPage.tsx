@@ -311,7 +311,7 @@ function AddUnitsDialog({ equipment, onClose }: { equipment: EquipmentDetail; on
               <SelectField control={form.control} name="status" label="Status" groups={STATUS_OPTIONS} />
               <TextField control={form.control} name="purchasedAt" label="Purchased" type="date" />
             </div>
-            <TextField control={form.control} name="condition" label="Condition" description="Like New, Good or Worn." />
+            <TextField control={form.control} name="condition" label="Condition" description="New, Like New, Good, Fair, Refurbished, Broken." />
             <SelectField
               control={form.control}
               name="contributedBy"
