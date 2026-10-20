@@ -21,6 +21,12 @@ const notes = z
 export const packUnitSchema = z.object({ assetTag });
 export type PackUnitInput = z.input<typeof packUnitSchema>;
 
+/** A unit that could be packed for a booking, suggested while typing a tag. */
+export interface PackableUnit {
+  assetTag: string;
+  equipmentId: number;
+}
+
 export const returnUnitSchema = z.object({
   assetTag,
   notes,

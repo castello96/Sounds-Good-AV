@@ -8,6 +8,7 @@ import type {
   CustomerSummary,
 } from "@shared/bookings";
 import type { Dashboard } from "@shared/dashboard";
+import type { PackableUnit } from "@shared/packout";
 import type { BookingActivity } from "@shared/progress";
 import { queryClient } from "@/lib/queryClient";
 import { api } from "./api";
@@ -41,6 +42,15 @@ export function useBooking(id: number) {
   return useQuery({
     queryKey: [...BOOKINGS_KEY, id],
     queryFn: () => api<BookingDetail>("GET", `/api/admin/bookings/${id}`),
+  });
+}
+
+/** Units that could be packed for a booking, to suggest while typing a tag. */
+export function usePackableUnits(id: number, enabled: boolean) {
+  return useQuery({
+    queryKey: [...BOOKINGS_KEY, id, "packable"],
+    queryFn: () => api<PackableUnit[]>("GET", `/api/admin/bookings/${id}/packable`),
+    enabled,
   });
 }
 

@@ -136,6 +136,23 @@ describe("packing", () => {
     await packout.packUnit(actorId, second, "MIC-001");
   });
 
+  it("suggests units that could be packed", async () => {
+    const { sm58, xlr } = await seedEquipment();
+    const first = await confirmedBooking([[sm58.id, 2], [xlr.id, 4]]);
+    const second = await confirmedBooking([[sm58.id, 1]], "2027-03-12T12:00", "2027-03-13T10:00");
+    const tags = async (id: number) => (await packout.listPackableUnits(id)).map((u) => u.assetTag);
+    // Not MIC-004 in maintenance, MIC-100 that isn't booked, or the cables, which have no tags.
+    expect(await tags(first)).toEqual(["MIC-001", "MIC-002", "MIC-003"]);
+    await packout.packUnit(actorId, first, "MIC-001");
+    expect(await tags(first)).toEqual(["MIC-002", "MIC-003"]);
+    expect(await tags(second)).toEqual(["MIC-002", "MIC-003"]);
+    // Back from one booking, it can go out on the other, but not again on the first.
+    await returnUnit(first, "MIC-001");
+    expect(await tags(second)).toEqual(["MIC-001", "MIC-002", "MIC-003"]);
+    expect(await tags(first)).toEqual(["MIC-002", "MIC-003"]);
+    await expect(packout.listPackableUnits(9999)).rejects.toMatchObject({ status: 404 });
+  });
+
   it("only packs confirmed bookings", async () => {
     const { sm58 } = await seedEquipment();
     const id = await confirmedBooking([[sm58.id, 1]]);
