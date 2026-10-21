@@ -6,16 +6,21 @@ import {
   BOOKING_TRANSITIONS,
   isEditable,
   missingForQuote,
+  PRICES_LOCKED_MESSAGE,
+  pricesLocked,
+  quoteTotal,
   type Availability,
   type BookingCounts,
   type BookingDetail,
   type BookingDetailsData,
+  type BookingItemData,
   type BookingStatus,
   type BookingSummary,
   type createBookingSchema,
   type Customer,
   type customerSchema,
   type PackedUnit,
+  type QuoteLineData,
   type Venue,
 } from "@shared/bookings";
 import type { Payment } from "@shared/payments";
@@ -30,6 +35,7 @@ import {
   equipment,
   inventory,
   payments,
+  quoteLines,
 } from "../db/schema";
 import { notFound, ServiceError, write } from "./errors";
 import { openIssueCounts } from "./gearIssues";
@@ -341,6 +347,7 @@ export async function getBooking(id: number): Promise<BookingDetail> {
       returned: itemReturned,
       damaged: itemDamaged,
       lost: itemLost,
+      unitPriceCents: bookingItems.unitPriceCents,
     })
     .from(bookingItems)
     .innerJoin(equipment, eq(equipment.id, bookingItems.equipmentId))
@@ -369,6 +376,18 @@ export async function getBooking(id: number): Promise<BookingDetail> {
     });
     unitsByItem.set(unit.bookingItemId, list);
   }
+
+  const lines = await db
+    .select({
+      id: quoteLines.id,
+      kind: quoteLines.kind,
+      description: quoteLines.description,
+      quantity: quoteLines.quantity,
+      unitPriceCents: quoteLines.unitPriceCents,
+    })
+    .from(quoteLines)
+    .where(eq(quoteLines.bookingId, id))
+    .orderBy(LINE_ORDER, asc(quoteLines.id));
 
   const paymentRows = await db
     .select()
@@ -411,10 +430,14 @@ export async function getBooking(id: number): Promise<BookingDetail> {
         availability: availability.get(i.equipmentId)!,
       };
     }),
+    lines,
     payments: paymentRows.map(toPayment),
     window: { start: iso(window.start), end: iso(window.end) },
   };
 }
+
+// Included extras first, then what's charged, then what comes off.
+const LINE_ORDER = sql`case ${quoteLines.kind} when 'included' then 0 when 'service' then 1 else 2 end`;
 
 const toPayment = (p: typeof payments.$inferSelect): Payment => ({
   id: p.id,
@@ -444,9 +467,48 @@ function assertEditable(row: BookingRow) {
   }
 }
 
+function assertPricesOpen(row: BookingRow) {
+  if (pricesLocked(row.status)) throw new ServiceError(409, `${PRICES_LOCKED_MESSAGE}.`);
+}
+
 async function countItems(tx: Tx, bookingId: number) {
   const [{ n }] = await tx.select({ n: count() }).from(bookingItems).where(eq(bookingItems.bookingId, bookingId));
   return n;
+}
+
+async function countUnpriced(tx: Tx, bookingId: number) {
+  const [{ n }] = await tx
+    .select({ n: count() })
+    .from(bookingItems)
+    .where(and(eq(bookingItems.bookingId, bookingId), sql`${bookingItems.unitPriceCents} is null`));
+  return n;
+}
+
+// The most a total can be, the largest integer column Postgres has room for.
+const MAX_TOTAL_CENTS = 2_147_483_647;
+
+/**
+ * Recounts a booking's total from its gear and quote lines. Call it in the
+ * same transaction as any change to either.
+ */
+async function refreshTotal(tx: Tx, row: BookingRow) {
+  const items = await tx
+    .select({ quantity: bookingItems.quantity, unitPriceCents: bookingItems.unitPriceCents })
+    .from(bookingItems)
+    .where(eq(bookingItems.bookingId, row.id));
+  const lines = await tx
+    .select({ quantity: quoteLines.quantity, unitPriceCents: quoteLines.unitPriceCents })
+    .from(quoteLines)
+    .where(eq(quoteLines.bookingId, row.id));
+  const total = quoteTotal(items, lines);
+  if (total === null && row.status !== "inquiry") {
+    throw new ServiceError(409, `Everything on a ${row.status} booking needs a price. Enter 0 to include it at no charge.`);
+  }
+  if (total !== null && total < 0) {
+    throw new ServiceError(409, "The discounts come to more than the rest of the quote.");
+  }
+  if (total !== null && total > MAX_TOTAL_CENTS) throw new ServiceError(409, "That total is too large.");
+  await tx.update(bookings).set({ totalPriceCents: total }).where(eq(bookings.id, row.id));
 }
 
 const sameWindow = (a: Window, b: Window) =>
@@ -529,9 +591,10 @@ export async function updateBookingDetails(actorId: number, id: number, data: Bo
         deliveryType: data.deliveryType,
         outAt: data.outAt,
         backAt: data.backAt,
-        totalPriceCents: data.totalPrice,
         hasVenue: venue !== null,
+        // Items and prices are checked where they change.
         itemCount: 1,
+        unpricedCount: 0,
       });
       if (missing.length > 0) {
         throw new ServiceError(409, `A ${row.status} booking needs a ${missing.join(", ")}.`);
@@ -548,7 +611,6 @@ export async function updateBookingDetails(actorId: number, id: number, data: Bo
         eventEndAt: localToUtc(data.eventEnd),
         outAt: data.outAt ? localToUtc(data.outAt) : null,
         backAt: data.backAt ? localToUtc(data.backAt) : null,
-        totalPriceCents: data.totalPrice,
         onsiteContactName: data.onsiteContactName,
         onsiteContactPhone: data.onsiteContactPhone,
         notes: data.notes,
@@ -574,25 +636,43 @@ export const packedCount = sql<number>`(select coalesce(sum(${itemPacked}), 0)::
 
 const PACKED_ITEM = "Gear has been packed for this item, so it can't be removed. Unpack it first.";
 
-/** Adds equipment to a booking, or changes how many it needs. */
-export async function setBookingItem(actorId: number, id: number, equipmentId: number, quantity: number) {
+const PRICED_ITEM_LOCKED = `${PRICES_LOCKED_MESSAGE}, so gear the customer is paying for stays as quoted.`;
+
+/**
+ * Adds equipment to a booking, or changes how many it needs and what each
+ * costs. Once the booking is confirmed, prices are fixed: new gear comes in
+ * as included, and priced gear can't change.
+ */
+export async function setBookingItem(actorId: number, id: number, equipmentId: number, data: BookingItemData) {
+  const { quantity } = data;
   await write(
     () =>
       withActor(actorId, async (tx) => {
         const row = await lockBooking(tx, id);
         assertEditable(row);
         const [previous] = await tx
-          .select({ quantity: bookingItems.quantity, packed: itemPacked })
+          .select({ quantity: bookingItems.quantity, unitPriceCents: bookingItems.unitPriceCents, packed: itemPacked })
           .from(bookingItems)
           .where(and(eq(bookingItems.bookingId, id), eq(bookingItems.equipmentId, equipmentId)));
         if (previous && quantity < previous.packed) {
           const message = `${previous.packed} have already been packed. Unpack some before lowering the quantity.`;
           throw new ServiceError(409, message);
         }
+
+        let unitPriceCents = data.unitPriceCents;
+        if (pricesLocked(row.status)) {
+          const current = previous ? previous.unitPriceCents : 0;
+          if (unitPriceCents !== null && unitPriceCents !== current) throw new ServiceError(409, `${PRICES_LOCKED_MESSAGE}.`);
+          if (previous && current !== 0 && quantity !== previous.quantity) throw new ServiceError(409, PRICED_ITEM_LOCKED);
+          unitPriceCents = current;
+        }
+
+        const values = { quantity, unitPriceCents };
         await tx
           .insert(bookingItems)
-          .values({ bookingId: id, equipmentId, quantity })
-          .onConflictDoUpdate({ target: [bookingItems.bookingId, bookingItems.equipmentId], set: { quantity } });
+          .values({ bookingId: id, equipmentId, ...values })
+          .onConflictDoUpdate({ target: [bookingItems.bookingId, bookingItems.equipmentId], set: values });
+        await refreshTotal(tx, row);
         if (row.status === "confirmed" && quantity > (previous?.quantity ?? 0)) await ensureAvailable(tx, row);
       }),
     { foreignKey: "That equipment no longer exists" },
@@ -606,11 +686,14 @@ export async function removeBookingItem(actorId: number, id: number, equipmentId
       withActor(actorId, async (tx) => {
         const row = await lockBooking(tx, id);
         assertEditable(row);
-        const [packed] = await tx
-          .select({ n: itemPacked })
+        const [current] = await tx
+          .select({ packed: itemPacked, unitPriceCents: bookingItems.unitPriceCents })
           .from(bookingItems)
           .where(and(eq(bookingItems.bookingId, id), eq(bookingItems.equipmentId, equipmentId)));
-        if (packed && packed.n > 0) throw new ServiceError(409, PACKED_ITEM);
+        if (current && current.packed > 0) throw new ServiceError(409, PACKED_ITEM);
+        if (current && pricesLocked(row.status) && current.unitPriceCents !== 0) {
+          throw new ServiceError(409, `${PRICES_LOCKED_MESSAGE}, so gear the customer is paying for can't be removed.`);
+        }
         const [removed] = await tx
           .delete(bookingItems)
           .where(and(eq(bookingItems.bookingId, id), eq(bookingItems.equipmentId, equipmentId)))
@@ -619,6 +702,7 @@ export async function removeBookingItem(actorId: number, id: number, equipmentId
         if (row.status !== "inquiry" && (await countItems(tx, id)) === 0) {
           throw new ServiceError(409, `A ${row.status} booking needs at least one item. Add another before removing this one.`);
         }
+        await refreshTotal(tx, row);
       }),
     { foreignKey: PACKED_ITEM },
   );
@@ -640,7 +724,12 @@ export async function changeBookingStatus(actorId: number, id: number, status: B
     }
 
     if (status === "quoted" || status === "confirmed") {
-      const missing = missingForQuote({ ...row, hasVenue: row.addressId !== null, itemCount: await countItems(tx, id) });
+      const missing = missingForQuote({
+        ...row,
+        hasVenue: row.addressId !== null,
+        itemCount: await countItems(tx, id),
+        unpricedCount: await countUnpriced(tx, id),
+      });
       if (missing.length > 0) {
         const verb = status === "quoted" ? "quoting" : "confirming";
         throw new ServiceError(409, `Before ${verb}, add the ${missing.join(", ")}.`);
@@ -658,6 +747,53 @@ export async function changeBookingStatus(actorId: number, id: number, status: B
 
     const [updated] = await tx.update(bookings).set({ status }).where(eq(bookings.id, id)).returning();
     if (status === "confirmed") await ensureAvailable(tx, updated);
+  });
+  return getBooking(id);
+}
+
+// ---------------------------------------------------------------------------
+// Quote lines
+// ---------------------------------------------------------------------------
+
+/** Adds a service, included extra or discount to a booking's quote. */
+export async function addQuoteLine(actorId: number, id: number, data: QuoteLineData) {
+  await withActor(actorId, async (tx) => {
+    const row = await lockBooking(tx, id);
+    assertEditable(row);
+    assertPricesOpen(row);
+    await tx.insert(quoteLines).values({ bookingId: id, ...data });
+    await refreshTotal(tx, row);
+  });
+  return getBooking(id);
+}
+
+export async function updateQuoteLine(actorId: number, id: number, lineId: number, data: QuoteLineData) {
+  await withActor(actorId, async (tx) => {
+    const row = await lockBooking(tx, id);
+    assertEditable(row);
+    assertPricesOpen(row);
+    const [updated] = await tx
+      .update(quoteLines)
+      .set(data)
+      .where(and(eq(quoteLines.id, lineId), eq(quoteLines.bookingId, id)))
+      .returning({ id: quoteLines.id });
+    notFound(updated, "Quote line");
+    await refreshTotal(tx, row);
+  });
+  return getBooking(id);
+}
+
+export async function removeQuoteLine(actorId: number, id: number, lineId: number) {
+  await withActor(actorId, async (tx) => {
+    const row = await lockBooking(tx, id);
+    assertEditable(row);
+    assertPricesOpen(row);
+    const [removed] = await tx
+      .delete(quoteLines)
+      .where(and(eq(quoteLines.id, lineId), eq(quoteLines.bookingId, id)))
+      .returning({ id: quoteLines.id });
+    notFound(removed, "Quote line");
+    await refreshTotal(tx, row);
   });
   return getBooking(id);
 }

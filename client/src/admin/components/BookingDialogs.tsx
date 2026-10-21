@@ -8,10 +8,18 @@ import {
   bookingItemSchema,
   centsToInput,
   customerSchema,
+  PRICES_LOCKED_MESSAGE,
+  pricesLocked,
+  QUOTE_LINE_KIND_DESCRIPTIONS,
+  QUOTE_LINE_KIND_LABELS,
+  QUOTE_LINE_KINDS,
+  quoteLineSchema,
   type BookingDetail,
   type BookingDetailsInput,
   type BookingItemInput,
   type CustomerInput,
+  type QuoteLine,
+  type QuoteLineInput,
 } from "@shared/bookings";
 import { DELIVERY_TYPES, DELIVERY_UNSURE, type DeliveryType } from "@shared/schema";
 import { toLocalInput } from "@shared/time";
@@ -132,7 +140,6 @@ export function DetailsDialog({ booking, onClose }: { booking: BookingDetail; on
       venueZip: venue?.zip ?? "",
       onsiteContactName: booking.onsiteContactName ?? "",
       onsiteContactPhone: booking.onsiteContactPhone ?? "",
-      totalPrice: centsToInput(booking.totalPriceCents),
       notes: booking.notes ?? "",
     },
   });
@@ -193,15 +200,7 @@ export function DetailsDialog({ booking, onClose }: { booking: BookingDetail; on
               </div>
             </section>
 
-            <section className="space-y-4">
-              <TextField
-                control={form.control}
-                name="totalPrice"
-                label="Total price ($)"
-                description="The full price for this booking, including delivery and labor."
-              />
-              <TextareaField control={form.control} name="notes" label="Internal notes" />
-            </section>
+            <TextareaField control={form.control} name="notes" label="Internal notes" />
 
             <RootError message={form.formState.errors.root?.message} />
             <DialogFooter>
@@ -220,8 +219,9 @@ export function DetailsDialog({ booking, onClose }: { booking: BookingDetail; on
 }
 
 /**
- * Adds equipment to a booking, or changes the quantity of one already on it
- * (pass `equipmentId`). Shows what's free during the booking's window.
+ * Adds equipment to a booking, or changes the quantity and price of one
+ * already on it (pass `equipmentId`). Shows what's free during the booking's
+ * window.
  */
 export function ItemDialog({
   booking,
@@ -237,10 +237,11 @@ export function ItemDialog({
   const [search, setSearch] = useState("");
   const [chosenId, setChosenId] = useState<number | undefined>(equipmentId);
   const existing = booking.items.find((i) => i.equipmentId === chosenId);
+  const locked = pricesLocked(booking.status);
 
   const form = useForm<BookingItemInput, unknown, z.output<typeof bookingItemSchema>>({
     resolver: zodResolver(bookingItemSchema),
-    defaultValues: { quantity: existing?.quantity ?? 1 },
+    defaultValues: { quantity: existing?.quantity ?? 1, unitPrice: centsToInput(existing?.unitPriceCents ?? null) },
   });
 
   const freeById = useMemo(() => new Map(availability?.map((a) => [a.equipmentId, a.available])), [availability]);
@@ -256,11 +257,14 @@ export function ItemDialog({
 
   const choose = (id: number) => {
     setChosenId(id);
-    form.setValue("quantity", booking.items.find((i) => i.equipmentId === id)?.quantity ?? 1);
+    const item = booking.items.find((i) => i.equipmentId === id);
+    form.setValue("quantity", item?.quantity ?? 1);
+    form.setValue("unitPrice", centsToInput(item?.unitPriceCents ?? null));
   };
 
-  const onSubmit = (values: z.output<typeof bookingItemSchema>) =>
-    save("PUT", `/api/admin/bookings/${booking.id}/items/${chosenId}`, values)
+  // Sent as typed. The server reads the price as cents.
+  const onSubmit = () =>
+    save("PUT", `/api/admin/bookings/${booking.id}/items/${chosenId}`, form.getValues())
       .then(onClose)
       .catch((error: Error) => form.setError("root", { message: error.message }));
 
@@ -268,7 +272,7 @@ export function ItemDialog({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{equipmentId ? "Change quantity" : "Add equipment"}</DialogTitle>
+          <DialogTitle>{equipmentId ? "Edit equipment" : "Add equipment"}</DialogTitle>
           <DialogDescription>Free counts are for this booking's out and back times.</DialogDescription>
         </DialogHeader>
         {!equipmentId && (
@@ -318,7 +322,21 @@ export function ItemDialog({
                   <span className="text-muted-foreground"> is already on this booking ({existing.quantity}). This changes how many.</span>
                 )}
               </p>
-              <TextField control={form.control} name="quantity" label="Quantity" type="number" autoFocus={!!equipmentId} />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <TextField control={form.control} name="quantity" label="Quantity" type="number" autoFocus={!!equipmentId} />
+                <TextField
+                  control={form.control}
+                  name="unitPrice"
+                  label="Price each ($)"
+                  disabled={locked}
+                  description={locked ? undefined : "For the whole booking. Enter 0 to show it as included."}
+                />
+              </div>
+              {locked && (
+                <p className="text-sm text-muted-foreground">
+                  {PRICES_LOCKED_MESSAGE}.{existing ? "" : " This is added as included, at no charge."}
+                </p>
+              )}
               {free !== undefined && quantity > free && (
                 <p className="text-sm text-amber-600 dark:text-amber-500">
                   Only {Math.max(0, free)} free for these times.{" "}
@@ -339,6 +357,77 @@ export function ItemDialog({
             </form>
           </Form>
         )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+const KIND_OPTIONS = [{ options: QUOTE_LINE_KINDS.map((k) => ({ value: k, label: QUOTE_LINE_KIND_LABELS[k] })) }];
+
+/** Adds a service, included extra or discount to the quote, or edits one (pass `line`). */
+export function QuoteLineDialog({ booking, line, onClose }: { booking: BookingDetail; line?: QuoteLine; onClose: () => void }) {
+  const form = useForm<QuoteLineInput, unknown, z.output<typeof quoteLineSchema>>({
+    resolver: zodResolver(quoteLineSchema),
+    defaultValues: {
+      kind: line?.kind ?? "service",
+      description: line?.description ?? "",
+      quantity: line?.quantity ?? 1,
+      // A discount is typed as the amount off.
+      unitPrice: line ? centsToInput(Math.abs(line.unitPriceCents)) : "",
+    },
+  });
+  const kind = useWatch({ control: form.control, name: "kind" });
+
+  const onSubmit = () => {
+    const values = { ...form.getValues(), ...(kind === "discount" ? { quantity: 1 } : {}) };
+    const url = `/api/admin/bookings/${booking.id}/lines${line ? `/${line.id}` : ""}`;
+    return save(line ? "PUT" : "POST", url, values)
+      .then(onClose)
+      .catch((error: Error) => form.setError("root", { message: error.message }));
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{line ? "Edit quote line" : "Add to the quote"}</DialogTitle>
+          <DialogDescription>Gear is priced on the equipment list. This is for everything else.</DialogDescription>
+        </DialogHeader>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <SelectField
+              control={form.control}
+              name="kind"
+              label="Kind"
+              groups={KIND_OPTIONS}
+              description={QUOTE_LINE_KIND_DESCRIPTIONS[kind]}
+            />
+            <TextField
+              control={form.control}
+              name="description"
+              label={kind === "discount" ? "Reason" : "Description"}
+              description="The customer sees this on the quote."
+              autoFocus
+            />
+            {kind === "service" && (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <TextField control={form.control} name="quantity" label="Quantity" type="number" />
+                <TextField control={form.control} name="unitPrice" label="Price each ($)" />
+              </div>
+            )}
+            {kind === "included" && <TextField control={form.control} name="quantity" label="Quantity" type="number" />}
+            {kind === "discount" && <TextField control={form.control} name="unitPrice" label="Amount off ($)" />}
+            <RootError message={form.formState.errors.root?.message} />
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={onClose}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={form.formState.isSubmitting} data-testid="button-save-line">
+                {line ? "Save" : "Add"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
       </DialogContent>
     </Dialog>
   );

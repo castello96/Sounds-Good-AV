@@ -43,6 +43,48 @@ export const isEditable = (status: BookingStatus) => status !== "completed" && s
 // The largest single item quantity on a booking.
 export const MAX_ITEM_QUANTITY = 10_000;
 
+/**
+ * Prices are what the customer agreed to, so they're fixed once a booking is
+ * confirmed. Gear added after that comes in as included.
+ */
+export const pricesLocked = (status: BookingStatus) => status !== "inquiry" && status !== "quoted";
+
+export const PRICES_LOCKED_MESSAGE = "Prices are locked once the booking is confirmed";
+
+// ---------------------------------------------------------------------------
+// Quote
+// ---------------------------------------------------------------------------
+
+export const QUOTE_LINE_KINDS = ["service", "included", "discount"] as const;
+export type QuoteLineKind = (typeof QUOTE_LINE_KINDS)[number];
+
+export const QUOTE_LINE_KIND_LABELS: Record<QuoteLineKind, string> = {
+  service: "Service",
+  included: "Included",
+  discount: "Discount",
+};
+
+export const QUOTE_LINE_KIND_DESCRIPTIONS: Record<QuoteLineKind, string> = {
+  service: "Work we charge for, like delivery, setup or a live engineer.",
+  included: "Something free that isn't gear, like setup or delivery. If it's gear we own, add it under Equipment at $0 so it's held and packed.",
+  discount: "An amount off the total, with the reason the customer sees.",
+};
+
+/**
+ * A booking's total: its gear at the price each, plus its quote lines. Null
+ * until every piece of gear is priced and there's something on the quote.
+ */
+export function quoteTotal(
+  items: { quantity: number; unitPriceCents: number | null }[],
+  lines: { quantity: number; unitPriceCents: number }[],
+): number | null {
+  if (items.length === 0 && lines.length === 0) return null;
+  if (items.some((i) => i.unitPriceCents === null)) return null;
+  const sum = (rows: { quantity: number; unitPriceCents: number | null }[]) =>
+    rows.reduce((total, r) => total + r.quantity * (r.unitPriceCents ?? 0), 0);
+  return sum(items) + sum(lines);
+}
+
 // ---------------------------------------------------------------------------
 // Money
 // ---------------------------------------------------------------------------
@@ -143,6 +185,18 @@ export interface BookingItem {
   // Oldest first. Always empty for gear tracked by quantity.
   units: PackedUnit[];
   availability: Availability;
+  // The price of one for the whole booking. Null until it's priced, and 0
+  // shows it on the quote as included.
+  unitPriceCents: number | null;
+}
+
+export interface QuoteLine {
+  id: number;
+  kind: QuoteLineKind;
+  description: string;
+  quantity: number;
+  // Negative for a discount.
+  unitPriceCents: number;
 }
 
 export interface BookingDetail extends BookingSummary {
@@ -155,6 +209,8 @@ export interface BookingDetail extends BookingSummary {
   onsiteContactName: string | null;
   onsiteContactPhone: string | null;
   items: BookingItem[];
+  // In the order they appear on the quote: included, then services, then discounts.
+  lines: QuoteLine[];
   // Oldest first.
   payments: Payment[];
   // The window availability is checked against: out/back, or the event times until those are set.
@@ -171,17 +227,18 @@ export function missingForQuote(b: {
   deliveryType: DeliveryType | null;
   outAt: unknown;
   backAt: unknown;
-  totalPriceCents: number | null;
   hasVenue: boolean;
   itemCount: number;
+  unpricedCount: number;
 }): string[] {
   const missing: string[] = [];
   if (!b.deliveryType) missing.push("delivery type");
   if (b.deliveryType && b.deliveryType !== "pickup" && !b.hasVenue) missing.push("venue address");
   if (!b.outAt) missing.push("out time");
   if (!b.backAt) missing.push("back time");
-  if (b.totalPriceCents === null) missing.push("total price");
   if (b.itemCount === 0) missing.push("equipment");
+  if (b.unpricedCount === 1) missing.push("price for 1 item");
+  if (b.unpricedCount > 1) missing.push(`prices for ${b.unpricedCount} items`);
   return missing;
 }
 
@@ -314,7 +371,6 @@ export const bookingDetailsSchema = z
     onsiteContactName: optionalText(200),
     onsiteContactPhone: optionalText(40),
     notes: optionalText(5000),
-    totalPrice: price,
   })
   .superRefine((v, ctx) => {
     checkEventTimes(v, ctx);
@@ -339,14 +395,47 @@ export const bookingDetailsSchema = z
 export type BookingDetailsInput = z.input<typeof bookingDetailsSchema>;
 export type BookingDetailsData = z.output<typeof bookingDetailsSchema>;
 
-export const bookingItemSchema = z.object({
-  quantity: z.coerce
-    .number()
-    .int("Quantity must be a whole number")
-    .min(1, "Quantity must be at least 1")
-    .max(MAX_ITEM_QUANTITY, `Quantity must be at most ${MAX_ITEM_QUANTITY.toLocaleString("en-US")}`),
-});
+const quantity = z.coerce
+  .number()
+  .int("Quantity must be a whole number")
+  .min(1, "Quantity must be at least 1")
+  .max(MAX_ITEM_QUANTITY, `Quantity must be at most ${MAX_ITEM_QUANTITY.toLocaleString("en-US")}`);
+
+export const bookingItemSchema = z
+  .object({ quantity, unitPrice: price })
+  .transform(({ quantity, unitPrice }) => ({ quantity, unitPriceCents: unitPrice }));
 export type BookingItemInput = z.input<typeof bookingItemSchema>;
+export type BookingItemData = z.output<typeof bookingItemSchema>;
+
+/**
+ * A service, included extra or discount. A discount is typed as the amount
+ * off and stored negative. An included line is always free.
+ */
+export const quoteLineSchema = z
+  .object({
+    kind: z.enum(QUOTE_LINE_KINDS, { errorMap: () => ({ message: "Pick what kind of line this is" }) }),
+    description: required("Description", 200),
+    quantity: quantity.default(1),
+    unitPrice: price,
+  })
+  .superRefine((v, ctx) => {
+    if (v.kind === "included") return;
+    if (!v.unitPrice) {
+      const message = v.kind === "discount" ? "Enter the amount off" : "Enter a price, or make it an included line";
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["unitPrice"], message });
+    }
+    if (v.kind === "discount" && v.quantity !== 1) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["quantity"], message: "A discount is a single amount" });
+    }
+  })
+  .transform(({ kind, description, quantity, unitPrice }) => ({
+    kind,
+    description,
+    quantity,
+    unitPriceCents: kind === "included" ? 0 : kind === "discount" ? -unitPrice! : unitPrice!,
+  }));
+export type QuoteLineInput = z.input<typeof quoteLineSchema>;
+export type QuoteLineData = z.output<typeof quoteLineSchema>;
 
 export const bookingStatusSchema = z.object({ status: z.enum(BOOKING_STATUSES) });
 

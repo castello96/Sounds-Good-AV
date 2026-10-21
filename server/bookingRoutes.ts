@@ -7,6 +7,7 @@ import {
   bookingStatusSchema,
   createBookingSchema,
   customerSchema,
+  quoteLineSchema,
 } from "@shared/bookings";
 import { itemCountsSchema, lostUnitSchema, packUnitSchema, returnUnitSchema } from "@shared/packout";
 import { paymentSchema } from "@shared/payments";
@@ -89,14 +90,33 @@ export function bookingRouter() {
   router.put(
     "/bookings/:id/items/:equipmentId",
     handle(async (req, res) => {
-      const { quantity } = bookingItemSchema.parse(req.body);
-      res.json(await bookings.setBookingItem(req.user!.id, idParam(req), idParam(req, "equipmentId"), quantity));
+      const data = bookingItemSchema.parse(req.body);
+      res.json(await bookings.setBookingItem(req.user!.id, idParam(req), idParam(req, "equipmentId"), data));
     }),
   );
   router.delete(
     "/bookings/:id/items/:equipmentId",
     handle(async (req, res) => {
       res.json(await bookings.removeBookingItem(req.user!.id, idParam(req), idParam(req, "equipmentId")));
+    }),
+  );
+  router.post(
+    "/bookings/:id/lines",
+    handle(async (req, res) => {
+      res.status(201).json(await bookings.addQuoteLine(req.user!.id, idParam(req), quoteLineSchema.parse(req.body)));
+    }),
+  );
+  router.put(
+    "/bookings/:id/lines/:lineId",
+    handle(async (req, res) => {
+      const data = quoteLineSchema.parse(req.body);
+      res.json(await bookings.updateQuoteLine(req.user!.id, idParam(req), idParam(req, "lineId"), data));
+    }),
+  );
+  router.delete(
+    "/bookings/:id/lines/:lineId",
+    handle(async (req, res) => {
+      res.json(await bookings.removeQuoteLine(req.user!.id, idParam(req), idParam(req, "lineId")));
     }),
   );
 

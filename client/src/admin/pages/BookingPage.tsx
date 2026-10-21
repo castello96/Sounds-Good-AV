@@ -7,9 +7,13 @@ import {
   formatMoney,
   isEditable,
   missingForQuote,
+  PRICES_LOCKED_MESSAGE,
+  pricesLocked,
+  QUOTE_LINE_KIND_LABELS,
   type BookingDetail,
   type BookingItem,
   type BookingStatus,
+  type QuoteLine,
 } from "@shared/bookings";
 import { balanceDue, PAYMENT_METHOD_LABELS, type Payment, type PaymentKind } from "@shared/payments";
 import { EVENT_TYPE_LABELS } from "@shared/schema";
@@ -24,7 +28,7 @@ import { api } from "../api";
 import { customerName, invalidateBookings, isOverdue, STATUS_BADGE, useBooking } from "../bookings";
 import { BookingHistory } from "../components/BookingHistory";
 import { BookingProgress } from "../components/BookingProgress";
-import { CustomerDialog, DELIVERY_LABELS, DetailsDialog, ItemDialog } from "../components/BookingDialogs";
+import { CustomerDialog, DELIVERY_LABELS, DetailsDialog, ItemDialog, QuoteLineDialog } from "../components/BookingDialogs";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { PaymentDialog } from "../components/PaymentDialog";
 import { StatusHint } from "../components/StatusHint";
@@ -35,6 +39,8 @@ type DialogState =
   | { kind: "details" }
   | { kind: "item"; equipmentId?: number }
   | { kind: "removeItem"; item: BookingItem }
+  | { kind: "line"; line?: QuoteLine }
+  | { kind: "removeLine"; line: QuoteLine }
   | { kind: "cancel" }
   | { kind: "payment"; paymentKind: PaymentKind; payment?: Payment }
   | { kind: "removePayment"; payment: Payment }
@@ -69,7 +75,9 @@ export default function BookingPage({ params }: { params: { id: string } }) {
     ...booking,
     hasVenue: booking.venue !== null,
     itemCount: booking.items.length,
+    unpricedCount: booking.items.filter((i) => i.unitPriceCents === null).length,
   });
+  const locked = pricesLocked(booking.status);
   const shortItems = booking.items.filter((i) => i.quantity > i.availability.available);
   const packed = booking.items.some((i) => i.out > 0);
 
@@ -225,11 +233,6 @@ export default function BookingPage({ params }: { params: { id: string } }) {
             <Field label="Onsite contact">
               {[booking.onsiteContactName, booking.onsiteContactPhone].filter(Boolean).join(", ") || null}
             </Field>
-            <Field label="Total price">
-              {booking.totalPriceCents === null ? null : (
-                <span data-testid="text-total">{formatMoney(booking.totalPriceCents)}</span>
-              )}
-            </Field>
             {booking.notes && (
               <div className="sm:col-span-2">
                 <Field label="Internal notes">
@@ -257,6 +260,7 @@ export default function BookingPage({ params }: { params: { id: string } }) {
                 <TableHead>Equipment</TableHead>
                 <TableHead>SKU</TableHead>
                 <TableHead className="text-right">Quantity</TableHead>
+                <TableHead className="text-right">Price each</TableHead>
                 <TableHead className="text-right">Free for these times</TableHead>
                 {packed && <TableHead className="text-right">Out and back</TableHead>}
                 {editable && <TableHead className="w-12" />}
@@ -265,13 +269,15 @@ export default function BookingPage({ params }: { params: { id: string } }) {
             <TableBody>
               {booking.items.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-muted-foreground">
+                  <TableCell colSpan={7} className="text-muted-foreground">
                     No equipment yet.
                   </TableCell>
                 </TableRow>
               )}
               {booking.items.map((item) => {
                 const short = item.quantity > item.availability.available;
+                // Gear the customer is paying for stays as quoted once confirmed.
+                const fixed = locked && item.unitPriceCents !== 0;
                 return (
                   <TableRow key={item.equipmentId} data-testid={`row-item-${item.equipmentId}`}>
                     <TableCell className="font-medium">
@@ -279,6 +285,9 @@ export default function BookingPage({ params }: { params: { id: string } }) {
                     </TableCell>
                     <TableCell className="font-mono text-sm">{item.sku}</TableCell>
                     <TableCell className="text-right">{item.quantity}</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      <ItemPrice cents={item.unitPriceCents} />
+                    </TableCell>
                     <TableCell className={short ? "text-right text-destructive" : "text-right"}>
                       {short && <AlertTriangle className="mr-1 inline h-4 w-4" />}
                       {Math.max(0, item.availability.available)} of {item.availability.capacity}
@@ -309,10 +318,17 @@ export default function BookingPage({ params }: { params: { id: string } }) {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem onSelect={() => setDialog({ kind: "item", equipmentId: item.equipmentId })}>
-                              Change quantity
+                            <DropdownMenuItem
+                              disabled={fixed}
+                              onSelect={() => setDialog({ kind: "item", equipmentId: item.equipmentId })}
+                            >
+                              Change quantity or price
                             </DropdownMenuItem>
-                            <DropdownMenuItem className="text-destructive" onSelect={() => setDialog({ kind: "removeItem", item })}>
+                            <DropdownMenuItem
+                              className="text-destructive"
+                              disabled={fixed}
+                              onSelect={() => setDialog({ kind: "removeItem", item })}
+                            >
                               Remove
                             </DropdownMenuItem>
                           </DropdownMenuContent>
@@ -328,7 +344,20 @@ export default function BookingPage({ params }: { params: { id: string } }) {
         {booking.status !== "confirmed" && booking.items.length > 0 && (
           <p className="text-sm text-muted-foreground">Gear is only held once the booking is confirmed.</p>
         )}
+        {editable && locked && booking.items.some((i) => i.unitPriceCents !== 0) && (
+          <p className="text-sm text-muted-foreground">
+            {PRICES_LOCKED_MESSAGE}, so priced gear stays as quoted. Gear added now is included at no charge.
+          </p>
+        )}
       </div>
+
+      <Quote
+        booking={booking}
+        canEdit={editable && !locked}
+        onAdd={() => setDialog({ kind: "line" })}
+        onEdit={(line) => setDialog({ kind: "line", line })}
+        onRemove={(line) => setDialog({ kind: "removeLine", line })}
+      />
 
       <Payments
         booking={booking}
@@ -348,6 +377,16 @@ export default function BookingPage({ params }: { params: { id: string } }) {
           description="It comes off this booking. You can add it back later."
           confirmLabel="Remove"
           onConfirm={() => request("DELETE", `/api/admin/bookings/${id}/items/${dialog.item.equipmentId}`, undefined, "Couldn't remove it")}
+          onClose={close}
+        />
+      )}
+      {dialog?.kind === "line" && <QuoteLineDialog booking={booking} line={dialog.line} onClose={close} />}
+      {dialog?.kind === "removeLine" && (
+        <ConfirmDialog
+          title={`Remove ${dialog.line.description}?`}
+          description="It comes off the quote and the total is recounted."
+          confirmLabel="Remove"
+          onConfirm={() => request("DELETE", `/api/admin/bookings/${id}/lines/${dialog.line.id}`, undefined, "Couldn't remove it")}
           onClose={close}
         />
       )}
@@ -490,6 +529,144 @@ function Payments({
         <p className="text-sm text-muted-foreground">
           This booking is cancelled with {formatMoney(booking.paidCents)} still paid. Record a refund for anything you give back.
         </p>
+      )}
+    </div>
+  );
+}
+
+function ItemPrice({ cents }: { cents: number | null }) {
+  if (cents === null) return <span className="text-amber-600 dark:text-amber-500">Not priced</span>;
+  if (cents === 0) return <span className="text-muted-foreground">Included</span>;
+  return <>{formatMoney(cents)}</>;
+}
+
+/** What the customer is charged: the gear, then services, included extras and discounts, then the total. */
+function Quote({
+  booking,
+  canEdit,
+  onAdd,
+  onEdit,
+  onRemove,
+}: {
+  booking: BookingDetail;
+  canEdit: boolean;
+  onAdd: () => void;
+  onEdit: (line: QuoteLine) => void;
+  onRemove: (line: QuoteLine) => void;
+}) {
+  const priced = booking.items.filter((i) => i.unitPriceCents !== null && i.unitPriceCents > 0);
+  const included = booking.items.filter((i) => i.unitPriceCents === 0);
+  const unpriced = booking.items.length - priced.length - included.length;
+  const gearCents = priced.reduce((sum, i) => sum + i.quantity * i.unitPriceCents!, 0);
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <h2 className="text-lg font-semibold">Quote</h2>
+        {canEdit && (
+          <Button variant="outline" onClick={onAdd} data-testid="button-add-line">
+            <Plus /> Add service, extra or discount
+          </Button>
+        )}
+      </div>
+      <div className="rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Description</TableHead>
+              <TableHead className="text-right">Quantity</TableHead>
+              <TableHead className="text-right">Price each</TableHead>
+              <TableHead className="text-right">Amount</TableHead>
+              {canEdit && <TableHead className="w-12" />}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {booking.items.length > 0 && (
+              <TableRow>
+                <TableCell>
+                  <span className="font-medium">Equipment</span>
+                  <span className="block text-xs text-muted-foreground">
+                    {booking.items.length === 1 ? "1 item: " : `${booking.items.length} items: `}
+                    {[
+                      priced.length && `${priced.length} priced`,
+                      included.length && `${included.length} included`,
+                      unpriced && `${unpriced} not priced yet`,
+                    ]
+                      .filter(Boolean)
+                      .join(", ")}
+                  </span>
+                </TableCell>
+                <TableCell />
+                <TableCell />
+                <TableCell className="text-right tabular-nums">
+                  {priced.length ? formatMoney(gearCents) : <span className="text-muted-foreground">Included</span>}
+                </TableCell>
+                {canEdit && <TableCell />}
+              </TableRow>
+            )}
+            {booking.lines.map((line) => (
+              <TableRow key={line.id} data-testid={`row-line-${line.id}`}>
+                <TableCell>
+                  <span className="font-medium">{line.description}</span>
+                  <span className="block text-xs text-muted-foreground">{QUOTE_LINE_KIND_LABELS[line.kind]}</span>
+                </TableCell>
+                <TableCell className="text-right">{line.kind === "discount" ? null : line.quantity}</TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {line.kind === "service" ? formatMoney(line.unitPriceCents) : null}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {line.kind === "included" ? (
+                    <span className="text-muted-foreground">Included</span>
+                  ) : line.kind === "discount" ? (
+                    `-${formatMoney(-line.unitPriceCents)}`
+                  ) : (
+                    formatMoney(line.quantity * line.unitPriceCents)
+                  )}
+                </TableCell>
+                {canEdit && (
+                  <TableCell>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`Actions for ${line.description}`}>
+                          <MoreHorizontal />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onSelect={() => onEdit(line)}>Edit</DropdownMenuItem>
+                        <DropdownMenuItem className="text-destructive" onSelect={() => onRemove(line)}>
+                          Remove
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                )}
+              </TableRow>
+            ))}
+            {booking.items.length === 0 && booking.lines.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={5} className="text-muted-foreground">
+                  Nothing on the quote yet. Add equipment, or a service like delivery or a live engineer.
+                </TableCell>
+              </TableRow>
+            )}
+            <TableRow className="hover:bg-transparent">
+              <TableCell colSpan={3} className="font-semibold">
+                Total
+              </TableCell>
+              <TableCell className="text-right text-base font-semibold tabular-nums" data-testid="text-total">
+                {booking.totalPriceCents === null ? (
+                  <span className="text-muted-foreground">Not priced</span>
+                ) : (
+                  formatMoney(booking.totalPriceCents)
+                )}
+              </TableCell>
+              {canEdit && <TableCell />}
+            </TableRow>
+          </TableBody>
+        </Table>
+      </div>
+      {isEditable(booking.status) && pricesLocked(booking.status) && (
+        <p className="text-sm text-muted-foreground">{PRICES_LOCKED_MESSAGE}.</p>
       )}
     </div>
   );

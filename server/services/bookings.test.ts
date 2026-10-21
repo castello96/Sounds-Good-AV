@@ -1,5 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { bookingDetailsSchema, createBookingSchema, customerSchema, type BookingDetailsInput } from "@shared/bookings";
+import {
+  bookingDetailsSchema,
+  bookingItemSchema,
+  createBookingSchema,
+  customerSchema,
+  quoteLineSchema,
+  type BookingDetailsInput,
+  type QuoteLineInput,
+} from "@shared/bookings";
 import { createUnitsSchema, equipmentSchema } from "@shared/inventory";
 import { resetDatabase } from "../../test/db";
 import * as bookings from "./bookings";
@@ -70,7 +78,6 @@ function readyDetails(overrides: Partial<BookingDetailsInput> = {}) {
     outAt: "2026-06-20T12:00",
     backAt: "2026-06-21T10:00",
     deliveryType: "pickup",
-    totalPrice: "1250.50",
     ...overrides,
   });
 }
@@ -81,7 +88,7 @@ async function confirmedBooking(items: [number, number][], outAt = "2026-06-20T1
   const day = outAt.slice(0, 10);
   const details = { outAt, backAt, eventStart: `${day}T13:00`, eventEnd: `${day}T14:00` };
   await bookings.updateBookingDetails(actorId, id, readyDetails(details));
-  for (const [equipmentId, quantity] of items) await bookings.setBookingItem(actorId, id, equipmentId, quantity);
+  for (const [equipmentId, quantity] of items) await bookings.setBookingItem(actorId, id, equipmentId, { quantity: quantity, unitPriceCents: 0 });
   await bookings.changeBookingStatus(actorId, id, "confirmed");
   return id;
 }
@@ -145,7 +152,7 @@ describe("booking details", () => {
     expect(bookingDetailsSchema.safeParse(backEarly).success).toBe(false);
     const delivery = bookingDetailsSchema.safeParse({ eventType: "wedding", eventStart: "2026-06-20T18:00", eventEnd: "2026-06-20T23:00", deliveryType: "dropoff" });
     expect(delivery.success).toBe(false);
-    expect(bookingDetailsSchema.safeParse({ ...backEarly, backAt: "", totalPrice: "12.345" }).success).toBe(false);
+    expect(bookingItemSchema.safeParse({ quantity: 1, unitPrice: "12.345" }).success).toBe(false);
   });
 
   it("saves and updates the venue in place", async () => {
@@ -153,7 +160,6 @@ describe("booking details", () => {
     const venue = { venueName: "The Barn", venueLine1: "1 Main St", venueCity: "Huntington", venueState: "NY", venueZip: "11743" };
     let booking = await bookings.updateBookingDetails(actorId, id, readyDetails({ deliveryType: "dropoff", ...venue }));
     expect(booking.venue).toMatchObject({ venueName: "The Barn", city: "Huntington" });
-    expect(booking.totalPriceCents).toBe(125050);
     expect(booking.window.start).toBe("2026-06-20T16:00:00.000Z");
 
     booking = await bookings.updateBookingDetails(actorId, id, readyDetails({ deliveryType: "dropoff", ...venue, venueLine1: "2 Main St" }));
@@ -173,7 +179,7 @@ describe("availability", () => {
     // A quote holds nothing.
     const quoted = await newBooking();
     await bookings.updateBookingDetails(actorId, quoted, readyDetails());
-    await bookings.setBookingItem(actorId, quoted, sm58.id, 1);
+    await bookings.setBookingItem(actorId, quoted, sm58.id, { quantity: 1, unitPriceCents: 0 });
     await bookings.changeBookingStatus(actorId, quoted, "quoted");
 
     all = await bookings.bookingAvailability(id);
@@ -204,14 +210,19 @@ describe("status changes", () => {
     const { sm58 } = await seedEquipment();
     const id = await newBooking();
     await expect(bookings.changeBookingStatus(actorId, id, "quoted")).rejects.toThrow(
-      "Before quoting, add the delivery type, out time, back time, total price, equipment.",
+      "Before quoting, add the delivery type, out time, back time, equipment.",
     );
     await bookings.updateBookingDetails(actorId, id, readyDetails());
-    await bookings.setBookingItem(actorId, id, sm58.id, 2);
+    await bookings.setBookingItem(actorId, id, sm58.id, { quantity: 2, unitPriceCents: null });
+    await expect(bookings.changeBookingStatus(actorId, id, "quoted")).rejects.toThrow("Before quoting, add the price for 1 item.");
+    await bookings.setBookingItem(actorId, id, sm58.id, { quantity: 2, unitPriceCents: 4000 });
     expect((await bookings.changeBookingStatus(actorId, id, "quoted")).status).toBe("quoted");
 
     // A quoted booking has to stay complete.
-    await expect(bookings.updateBookingDetails(actorId, id, readyDetails({ totalPrice: "" }))).rejects.toMatchObject({ status: 409 });
+    await expect(bookings.updateBookingDetails(actorId, id, readyDetails({ outAt: "" }))).rejects.toMatchObject({ status: 409 });
+    await expect(bookings.setBookingItem(actorId, id, sm58.id, { quantity: 2, unitPriceCents: null })).rejects.toThrow(
+      "Everything on a quoted booking needs a price",
+    );
     await expect(bookings.removeBookingItem(actorId, id, sm58.id)).rejects.toMatchObject({ status: 409 });
   });
 
@@ -220,13 +231,13 @@ describe("status changes", () => {
     await confirmedBooking([[sm58.id, 2]]);
     const id = await newBooking();
     await bookings.updateBookingDetails(actorId, id, readyDetails());
-    await bookings.setBookingItem(actorId, id, sm58.id, 2);
+    await bookings.setBookingItem(actorId, id, sm58.id, { quantity: 2, unitPriceCents: 0 });
     await expect(bookings.changeBookingStatus(actorId, id, "confirmed")).rejects.toThrow(
       "Not enough gear for these dates: Shure SM58 (needs 2, 1 free).",
     );
     expect((await bookings.getBooking(id)).status).toBe("inquiry");
 
-    await bookings.setBookingItem(actorId, id, sm58.id, 1);
+    await bookings.setBookingItem(actorId, id, sm58.id, { quantity: 1, unitPriceCents: 0 });
     expect((await bookings.changeBookingStatus(actorId, id, "confirmed")).status).toBe("confirmed");
   });
 
@@ -234,12 +245,12 @@ describe("status changes", () => {
     const { sm58 } = await seedEquipment();
     await confirmedBooking([[sm58.id, 2]], "2026-06-25T08:00", "2026-06-26T08:00");
     const id = await confirmedBooking([[sm58.id, 2]]);
-    await expect(bookings.setBookingItem(actorId, id, sm58.id, 4)).rejects.toMatchObject({ status: 409 });
+    await expect(bookings.setBookingItem(actorId, id, sm58.id, { quantity: 4, unitPriceCents: 0 })).rejects.toMatchObject({ status: 409 });
     expect((await bookings.getBooking(id)).items[0].quantity).toBe(2);
     // Shrinking is always fine.
-    await bookings.setBookingItem(actorId, id, sm58.id, 1);
+    await bookings.setBookingItem(actorId, id, sm58.id, { quantity: 1, unitPriceCents: 0 });
 
-    await bookings.setBookingItem(actorId, id, sm58.id, 2);
+    await bookings.setBookingItem(actorId, id, sm58.id, { quantity: 2, unitPriceCents: 0 });
     const moved = readyDetails({
       eventStart: "2026-06-25T18:00",
       eventEnd: "2026-06-25T23:00",
@@ -266,5 +277,72 @@ describe("status changes", () => {
     expect(inquiries).toHaveLength(1);
     expect(inquiries[0].itemCount).toBe(0);
     expect(await bookings.listBookings()).toHaveLength(2);
+  });
+});
+
+const line = (input: QuoteLineInput) => quoteLineSchema.parse(input);
+
+describe("quote", () => {
+  it("totals priced gear and quote lines", async () => {
+    const { sm58, xlr } = await seedEquipment();
+    const id = await newBooking();
+    await bookings.updateBookingDetails(actorId, id, readyDetails());
+    let booking = await bookings.setBookingItem(actorId, id, sm58.id, { quantity: 2, unitPriceCents: 4000 });
+    expect(booking.totalPriceCents).toBe(8000);
+
+    // Unpriced gear means there's no total yet.
+    booking = await bookings.setBookingItem(actorId, id, xlr.id, { quantity: 4, unitPriceCents: null });
+    expect(booking.totalPriceCents).toBeNull();
+    booking = await bookings.setBookingItem(actorId, id, xlr.id, { quantity: 4, unitPriceCents: 0 });
+    expect(booking.totalPriceCents).toBe(8000);
+
+    await bookings.addQuoteLine(actorId, id, line({ kind: "service", description: "Live mixing", quantity: 2, unitPrice: "150" }));
+    await bookings.addQuoteLine(actorId, id, line({ kind: "included", description: "Table and tablecloth" }));
+    booking = await bookings.addQuoteLine(actorId, id, line({ kind: "discount", description: "Returning customer", unitPrice: "50" }));
+    expect(booking.totalPriceCents).toBe(8000 + 30000 - 5000);
+    expect(booking.lines.map((l) => [l.kind, l.unitPriceCents])).toEqual([
+      ["included", 0],
+      ["service", 15000],
+      ["discount", -5000],
+    ]);
+    expect(booking.items.find((i) => i.equipmentId === sm58.id)?.unitPriceCents).toBe(4000);
+
+    const discount = booking.lines[2];
+    await expect(
+      bookings.updateQuoteLine(actorId, id, discount.id, line({ kind: "discount", description: "Too much", unitPrice: "1000" })),
+    ).rejects.toThrow("The discounts come to more than the rest of the quote.");
+    booking = await bookings.removeQuoteLine(actorId, id, discount.id);
+    expect(booking.totalPriceCents).toBe(38000);
+  });
+
+  it("checks quote lines", () => {
+    expect(quoteLineSchema.safeParse({ kind: "service", description: "Delivery" }).success).toBe(false);
+    expect(quoteLineSchema.safeParse({ kind: "discount", description: "Deal", quantity: 2, unitPrice: "10" }).success).toBe(false);
+    expect(line({ kind: "included", description: "Router", unitPrice: "99" }).unitPriceCents).toBe(0);
+    expect(line({ kind: "discount", description: "Deal", unitPrice: "10" }).unitPriceCents).toBe(-1000);
+  });
+
+  it("locks prices once confirmed", async () => {
+    const { sm58, xlr } = await seedEquipment();
+    const id = await newBooking();
+    await bookings.updateBookingDetails(actorId, id, readyDetails());
+    await bookings.setBookingItem(actorId, id, sm58.id, { quantity: 1, unitPriceCents: 4000 });
+    const { lines } = await bookings.addQuoteLine(actorId, id, line({ kind: "service", description: "Delivery", unitPrice: "100" }));
+    await bookings.changeBookingStatus(actorId, id, "confirmed");
+
+    const locked = { status: 409, message: expect.stringContaining("Prices are locked") };
+    await expect(bookings.addQuoteLine(actorId, id, line({ kind: "included", description: "Router" }))).rejects.toMatchObject(locked);
+    await expect(bookings.removeQuoteLine(actorId, id, lines[0].id)).rejects.toMatchObject(locked);
+    await expect(bookings.setBookingItem(actorId, id, sm58.id, { quantity: 1, unitPriceCents: 5000 })).rejects.toMatchObject(locked);
+    await expect(bookings.setBookingItem(actorId, id, sm58.id, { quantity: 2, unitPriceCents: 4000 })).rejects.toMatchObject(locked);
+    await expect(bookings.removeBookingItem(actorId, id, sm58.id)).rejects.toMatchObject(locked);
+
+    // Gear added after confirming is included, and can change freely.
+    let booking = await bookings.setBookingItem(actorId, id, xlr.id, { quantity: 2, unitPriceCents: null });
+    expect(booking.items.find((i) => i.equipmentId === xlr.id)?.unitPriceCents).toBe(0);
+    await expect(bookings.setBookingItem(actorId, id, xlr.id, { quantity: 2, unitPriceCents: 1000 })).rejects.toMatchObject(locked);
+    booking = await bookings.setBookingItem(actorId, id, xlr.id, { quantity: 3, unitPriceCents: 0 });
+    booking = await bookings.removeBookingItem(actorId, id, xlr.id);
+    expect(booking.totalPriceCents).toBe(14000);
   });
 });
