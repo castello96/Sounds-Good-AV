@@ -64,6 +64,13 @@
       "when": 1792598915490,
       "tag": "0008_quote_lines",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792615270165,
+      "tag": "0009_customer_mailing_address",
+      "breakpoints": true
     }
   ]
 }

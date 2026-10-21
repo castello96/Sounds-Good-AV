@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Link } from "wouter";
-import { AlertTriangle, ArrowLeft, MoreHorizontal, PackageCheck, Pencil, Plus } from "lucide-react";
+import { AlertTriangle, ArrowLeft, FileDown, MoreHorizontal, PackageCheck, Pencil, Plus } from "lucide-react";
 import {
   BOOKING_STATUS_LABELS,
   BOOKING_TRANSITIONS,
@@ -16,6 +16,7 @@ import {
   type QuoteLine,
 } from "@shared/bookings";
 import { balanceDue, PAYMENT_METHOD_LABELS, type Payment, type PaymentKind } from "@shared/payments";
+import { canInvoice, quoteNumber, type QuoteDocument } from "@shared/quotes";
 import { EVENT_TYPE_LABELS } from "@shared/schema";
 import { formatDate, formatDateTime, formatRange } from "@shared/time";
 import { Badge } from "@/components/ui/badge";
@@ -110,10 +111,22 @@ export default function BookingPage({ params }: { params: { id: string } }) {
             </StatusHint>
           </div>
           <p className="text-muted-foreground">
-            {EVENT_TYPE_LABELS[booking.eventType]} · {formatRange(booking.eventStartAt, booking.eventEndAt)}
+            <span className="font-mono" data-testid="text-quote-number">
+              {quoteNumber(booking.id)}
+            </span>{" "}
+            · {EVENT_TYPE_LABELS[booking.eventType]} · {formatRange(booking.eventStartAt, booking.eventEndAt)}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {booking.status !== "cancelled" && (
+            <DownloadButton
+              id={id}
+              document="quote"
+              disabled={missing.length > 0}
+              title={missing.length > 0 ? `Add the ${missing.join(", ")} first` : undefined}
+            />
+          )}
+          {canInvoice(booking.status) && <DownloadButton id={id} document="invoice" />}
           {(booking.status === "confirmed" || packed) && (
             <Button variant={booking.status === "confirmed" ? "default" : "outline"} asChild>
               <Link href={`/bookings/${id}/pack`} data-testid="link-pack">
@@ -185,6 +198,7 @@ export default function BookingPage({ params }: { params: { id: string } }) {
               </a>
             </p>
             {booking.customer.phone && <p>{booking.customer.phone}</p>}
+            {booking.customer.mailingAddress && <p className="whitespace-pre-wrap">{booking.customer.mailingAddress}</p>}
             {booking.customer.notes && <p className="whitespace-pre-wrap pt-2 text-muted-foreground">{booking.customer.notes}</p>}
           </CardContent>
         </Card>
@@ -703,5 +717,27 @@ function BackLink() {
     <Link href="/bookings" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
       <ArrowLeft className="h-4 w-4" /> Bookings
     </Link>
+  );
+}
+
+/** Downloads the booking's quote or invoice PDF. */
+function DownloadButton({ id, document, disabled, title }: { id: number; document: QuoteDocument; disabled?: boolean; title?: string }) {
+  const label = document === "quote" ? "Quote PDF" : "Invoice PDF";
+  if (disabled) {
+    return (
+      // A span so the reason still shows on hover over the disabled button.
+      <span title={title}>
+        <Button variant="outline" disabled data-testid={`button-download-${document}`}>
+          <FileDown /> {label}
+        </Button>
+      </span>
+    );
+  }
+  return (
+    <Button variant="outline" asChild>
+      <a href={`/api/admin/bookings/${id}/quote.pdf?document=${document}`} download data-testid={`button-download-${document}`}>
+        <FileDown /> {label}
+      </a>
+    </Button>
   );
 }

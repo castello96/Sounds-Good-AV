@@ -189,6 +189,8 @@ export const customers = pgTable("customers", {
   email: text("email").notNull().unique(),
   phone: text("phone"),
   companyName: text("company_name"),
+  // Shown on quotes when filled in. Free text, one line per address line.
+  mailingAddress: text("mailing_address"),
   notes: text("notes"),
   ...timestamps,
 });

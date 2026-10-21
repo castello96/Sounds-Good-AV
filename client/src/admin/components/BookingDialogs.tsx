@@ -74,6 +74,7 @@ export function CustomerDialog({ booking, onClose }: { booking: BookingDetail; o
       email: customer.email,
       phone: customer.phone ?? "",
       companyName: customer.companyName ?? "",
+      mailingAddress: customer.mailingAddress ?? "",
       notes: customer.notes ?? "",
     },
   });
@@ -104,6 +105,12 @@ export function CustomerDialog({ booking, onClose }: { booking: BookingDetail; o
               <TextField control={form.control} name="phone" label="Phone" type="tel" />
               <TextField control={form.control} name="companyName" label="Company" />
             </div>
+            <TextareaField
+              control={form.control}
+              name="mailingAddress"
+              label="Mailing address (optional)"
+              description="Shown on quotes. Leave blank if it's only the venue."
+            />
             <TextareaField control={form.control} name="notes" label="Notes about this customer" />
             <DialogFooter>
               <Button type="button" variant="outline" onClick={onClose}>

@@ -11,12 +11,16 @@ import {
 } from "@shared/bookings";
 import { itemCountsSchema, lostUnitSchema, packUnitSchema, returnUnitSchema } from "@shared/packout";
 import { paymentSchema } from "@shared/payments";
+import { QUOTE_DOCUMENTS } from "@shared/quotes";
 import { handle, idParam } from "./http";
 import * as bookings from "./services/bookings";
 import * as dashboard from "./services/dashboard";
 import * as history from "./services/history";
 import * as packout from "./services/packout";
 import * as payments from "./services/payments";
+import * as quotes from "./services/quotes";
+
+const documentSchema = z.object({ document: z.enum(QUOTE_DOCUMENTS).default("quote") });
 
 const searchSchema = z.object({ q: z.string().max(200).default("") });
 
@@ -53,6 +57,17 @@ export function bookingRouter() {
     "/bookings/:id/history",
     handle(async (req, res) => {
       res.json(await history.bookingHistory(idParam(req)));
+    }),
+  );
+  router.get(
+    "/bookings/:id/quote.pdf",
+    handle(async (req, res) => {
+      const { document } = documentSchema.parse(req.query);
+      const { filename, pdf } = await quotes.quotePdf(idParam(req), document);
+      res.type("application/pdf");
+      res.attachment(filename);
+      res.setHeader("Cache-Control", "no-store");
+      res.send(pdf);
     }),
   );
   router.post(

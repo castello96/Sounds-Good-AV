@@ -112,6 +112,7 @@ export interface CustomerSummary {
 }
 
 export interface Customer extends CustomerSummary {
+  mailingAddress: string | null;
   notes: string | null;
 }
 
@@ -291,6 +292,7 @@ export const customerSchema = z.object({
   email,
   phone: optionalText(40),
   companyName: optionalText(200),
+  mailingAddress: optionalText(500),
   notes: optionalText(2000),
 });
 export type CustomerInput = z.input<typeof customerSchema>;
