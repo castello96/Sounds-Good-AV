@@ -72,7 +72,11 @@ export async function bookingHistory(bookingId: number): Promise<BookingActivity
     const described = describe(row, names);
     if (!described) return [];
     const detail = [described.detail, totals.detail.get(row.id)].filter(Boolean).join(". ");
-    return [{ id: row.id, ...milestone(row), summary: described.summary, detail: detail || null }];
+    const entry = milestone(row);
+    // The website only ever inserts a booking and its gear, so other changes
+    // with no staff member came from the system, like the 0008 migration.
+    if (entry.actor === null && !(row.action === "insert" && row.entityType !== "quote_lines")) entry.actor = "System";
+    return [{ id: row.id, ...entry, summary: described.summary, detail: detail || null }];
   });
   return { history, milestones: milestones(rows) };
 }
@@ -262,11 +266,11 @@ function describePayment(row: AuditRow): Described {
 }
 
 /** "$40.00 each", "Included", or null when it isn't priced. */
-const eachPrice = (cents: number | null) => (cents === null ? null : cents === 0 ? "Included" : `${formatMoney(cents)} each`);
+const eachPrice = (cents: number | null | undefined) => (cents == null ? null : cents === 0 ? "Included" : `${formatMoney(cents)} each`);
 
 function describeItem(row: AuditRow, name: string): Described {
   if (row.action === "insert") {
-    return { summary: `Added ${row.changes.quantity} × ${name}`, detail: eachPrice(row.changes.unit_price_cents as number | null) ?? undefined };
+    return { summary: `Added ${row.changes.quantity} × ${name}`, detail: eachPrice(row.changes.unit_price_cents as number | null | undefined) ?? undefined };
   }
   if (row.action === "delete") return { summary: `Removed ${name}` };
 

@@ -586,6 +586,7 @@ function Quote({
                 <TableCell>
                   <span className="font-medium">Equipment</span>
                   <span className="block text-xs text-muted-foreground">
+                    {booking.items.length === 1 ? "1 item: " : `${booking.items.length} items: `}
                     {[
                       priced.length && `${priced.length} priced`,
                       included.length && `${included.length} included`,
