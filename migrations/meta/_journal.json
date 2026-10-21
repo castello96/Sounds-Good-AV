@@ -57,6 +57,13 @@
       "when": 1792425053055,
       "tag": "0007_gear_contributors",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792598915490,
+      "tag": "0008_quote_lines",
+      "breakpoints": true
     }
   ]
 }

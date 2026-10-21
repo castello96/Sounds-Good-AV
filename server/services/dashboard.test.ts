@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { bookingDetailsSchema, createBookingSchema } from "@shared/bookings";
+import { bookingDetailsSchema, createBookingSchema, quoteLineSchema } from "@shared/bookings";
 import { createUnitsSchema, equipmentSchema } from "@shared/inventory";
 import { itemCountsSchema, returnUnitSchema } from "@shared/packout";
 import { paymentSchema } from "@shared/payments";
@@ -68,9 +68,10 @@ async function confirmedBooking(items: [number, number][], outAt: string, backAt
   await bookings.updateBookingDetails(
     actorId,
     id,
-    bookingDetailsSchema.parse({ ...event, outAt, backAt, deliveryType: "pickup", totalPrice: "500" }),
+    bookingDetailsSchema.parse({ ...event, outAt, backAt, deliveryType: "pickup" }),
   );
-  for (const [equipmentId, quantity] of items) await bookings.setBookingItem(actorId, id, equipmentId, quantity);
+  await bookings.addQuoteLine(actorId, id, quoteLineSchema.parse({ kind: "service", description: "Sound", unitPrice: "500" }));
+  for (const [equipmentId, quantity] of items) await bookings.setBookingItem(actorId, id, equipmentId, { quantity: quantity, unitPriceCents: 0 });
   await bookings.changeBookingStatus(actorId, id, "confirmed");
   return id;
 }
@@ -201,13 +202,16 @@ describe("booking history", () => {
       "Confirmed the booking",
       "Added 2 × Generic XLR 25ft",
       "Added 1 × Shure SM58",
-      "Changed the delivery, out time, back time and price",
+      "Added Sound ($500.00) to the quote",
+      "Changed the delivery, out time and back time",
       "Created the booking",
     ]);
-    expect(history[8].detail).toBe("Price set to $500.00");
+    // The total is recounted with each change, and shows on the change that caused it.
+    expect(history[7].detail).toBe("Included");
+    expect(history[8].detail).toBe("Total set to $500.00");
     // The tracker's dates come from the same events.
     expect(Object.keys(milestones).sort()).toEqual(["back", "confirmed", "created", "out"]);
-    expect(milestones.created?.at).toBe(history[9].at);
+    expect(milestones.created?.at).toBe(history[10].at);
     expect(milestones.confirmed?.at).toBe(history[5].at);
     expect(milestones.out).toEqual({ at: history[3].at, actor: "Staff Member" });
     expect(milestones.back?.at).toBe(history[0].at);

@@ -62,10 +62,9 @@ async function pricedBooking(status: "inquiry" | "quoted" | "confirmed" = "quote
       outAt: "2026-06-20T12:00",
       backAt: "2026-06-21T10:00",
       deliveryType: "pickup",
-      totalPrice: "1000",
     }),
   );
-  await bookings.setBookingItem(actorId, id, equipmentId, 2);
+  await bookings.setBookingItem(actorId, id, equipmentId, { quantity: 2, unitPriceCents: 50000 });
   if (status !== "inquiry") await bookings.changeBookingStatus(actorId, id, status);
   return id;
 }

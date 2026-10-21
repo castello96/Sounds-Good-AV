@@ -53,6 +53,9 @@ export const paymentMethod = pgEnum("payment_method", PAYMENT_METHODS);
 export const gearIssueKind = pgEnum("gear_issue_kind", ["repair", "lost"]);
 export const gearIssueResolution = pgEnum("gear_issue_resolution", ["repaired", "found", "written_off"]);
 
+// Lines on a quote besides the gear, which is priced on booking_items.
+export const quoteLineKind = pgEnum("quote_line_kind", ["service", "included", "discount"]);
+
 export const auditAction = pgEnum("audit_action", ["insert", "update", "delete"]);
 
 // ---------------------------------------------------------------------------
@@ -287,6 +290,9 @@ export const bookingItems = pgTable(
     quantityReturned: integer("quantity_returned").notNull().default(0),
     quantityDamaged: integer("quantity_damaged").notNull().default(0),
     quantityLost: integer("quantity_lost").notNull().default(0),
+    // What one unit costs for the whole booking, not per day. Null until it's
+    // priced, and 0 shows it on the quote as included.
+    unitPriceCents: integer("unit_price_cents"),
     ...timestamps,
   },
   (t) => [
@@ -295,12 +301,45 @@ export const bookingItems = pgTable(
     unique("booking_items_id_equipment_id_unique").on(t.id, t.equipmentId),
     index().on(t.equipmentId),
     check("booking_items_quantity_positive", sql`${t.quantity} > 0`),
+    check("booking_items_price_non_negative", sql`${t.unitPriceCents} IS NULL OR ${t.unitPriceCents} >= 0`),
     check(
       "booking_items_counts_valid",
       sql`${t.quantityReturned} >= 0 AND ${t.quantityLost} >= 0
         AND ${t.quantityDamaged} >= 0 AND ${t.quantityDamaged} <= ${t.quantityReturned}
         AND ${t.quantityReturned} + ${t.quantityLost} <= ${t.quantityOut}
         AND ${t.quantityOut} <= ${t.quantity}`,
+    ),
+  ],
+);
+
+/**
+ * The rest of a booking's quote: services like delivery and live mixing,
+ * extras included at no charge, and discounts. A booking's total is its
+ * priced gear plus these lines, kept in bookings.total_price_cents.
+ */
+export const quoteLines = pgTable(
+  "quote_lines",
+  {
+    id: id(),
+    bookingId: integer("booking_id")
+      .notNull()
+      .references(() => bookings.id),
+    kind: quoteLineKind("kind").notNull(),
+    // What the client reads on the quote. For a discount, the reason.
+    description: text("description").notNull(),
+    quantity: integer("quantity").notNull().default(1),
+    // Negative for a discount.
+    unitPriceCents: integer("unit_price_cents").notNull(),
+    ...timestamps,
+  },
+  (t) => [
+    index().on(t.bookingId),
+    check("quote_lines_quantity_positive", sql`${t.quantity} > 0`),
+    check(
+      "quote_lines_price_fits_kind",
+      sql`(${t.kind} = 'service' AND ${t.unitPriceCents} > 0)
+        OR (${t.kind} = 'included' AND ${t.unitPriceCents} = 0)
+        OR (${t.kind} = 'discount' AND ${t.unitPriceCents} < 0 AND ${t.quantity} = 1)`,
     ),
   ],
 );

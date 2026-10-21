@@ -10,6 +10,7 @@ export function TextField<T extends FieldValues>({
   type = "text",
   autoComplete,
   autoFocus,
+  disabled,
 }: {
   // Any transformed type, so forms whose schema reshapes values (like null for "unsure") fit.
   control: Control<T, any, any>;
@@ -19,6 +20,7 @@ export function TextField<T extends FieldValues>({
   type?: string;
   autoComplete?: string;
   autoFocus?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <FormField
@@ -34,6 +36,7 @@ export function TextField<T extends FieldValues>({
               type={type}
               autoComplete={autoComplete}
               autoFocus={autoFocus}
+              disabled={disabled}
               data-testid={`input-${name}`}
             />
           </FormControl>

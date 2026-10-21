@@ -86,10 +86,9 @@ async function confirmedBooking(items: [number, number][], outAt = "2027-03-10T1
       outAt,
       backAt,
       deliveryType: "pickup",
-      totalPrice: "500",
     }),
   );
-  for (const [equipmentId, quantity] of items) await bookings.setBookingItem(actorId, id, equipmentId, quantity);
+  for (const [equipmentId, quantity] of items) await bookings.setBookingItem(actorId, id, equipmentId, { quantity: quantity, unitPriceCents: 0 });
   await bookings.changeBookingStatus(actorId, id, "confirmed");
   return id;
 }
@@ -174,7 +173,7 @@ describe("packing", () => {
     const id = await confirmedBooking([[sm58.id, 2]]);
     await packout.packUnit(actorId, id, "MIC-001");
     await packout.packUnit(actorId, id, "MIC-002");
-    await expect(bookings.setBookingItem(actorId, id, sm58.id, 1)).rejects.toThrow(/already been packed/);
+    await expect(bookings.setBookingItem(actorId, id, sm58.id, { quantity: 1, unitPriceCents: 0 })).rejects.toThrow(/already been packed/);
     await expect(bookings.removeBookingItem(actorId, id, sm58.id)).rejects.toThrow(/Unpack it first/);
   });
 });
