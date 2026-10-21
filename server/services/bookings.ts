@@ -102,6 +102,7 @@ const toCustomer = (row: typeof customers.$inferSelect): Customer => ({
   email: row.email,
   phone: row.phone,
   companyName: row.companyName,
+  mailingAddress: row.mailingAddress,
   notes: row.notes,
 });
 

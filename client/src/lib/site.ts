@@ -1,7 +1,9 @@
+import { BUSINESS } from "@shared/business";
+
 // How to reach Sounds Good AV. Shown in the contact section and the footer.
 export const CONTACT = {
-  email: "info@soundsgoodav.com",
-  phone: "(516) 382-4385",
+  email: BUSINESS.email,
+  phone: BUSINESS.phone,
   phoneHref: "tel:+15163824385",
   instagram: "https://www.instagram.com/soundsgoodav.ny/",
   instagramHandle: "@soundsgoodav.ny",
