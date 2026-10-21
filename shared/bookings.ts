@@ -66,7 +66,7 @@ export const QUOTE_LINE_KIND_LABELS: Record<QuoteLineKind, string> = {
 
 export const QUOTE_LINE_KIND_DESCRIPTIONS: Record<QuoteLineKind, string> = {
   service: "Work we charge for, like delivery, setup or a live engineer.",
-  included: "Something we throw in at no charge, shown on the quote as included.",
+  included: "Something free that isn't gear, like setup or delivery. If it's gear we own, add it under Equipment at $0 so it's held and packed.",
   discount: "An amount off the total, with the reason the customer sees.",
 };
 
