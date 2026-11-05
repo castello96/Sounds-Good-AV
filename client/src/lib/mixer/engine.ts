@@ -89,7 +89,7 @@ function build(): Graph | null {
   const built = { ctx, channels, mains, analysers };
   if (STEMS) {
     setState({ loading: true });
-    startStems(ctx, channels, STEMS)
+    startStems(ctx, channels, STEMS, () => setState({ loading: false }))
       .catch(() => {
         startPlaceholderLoop(ctx, channels);
         setState({ track: "placeholder" });
@@ -115,7 +115,7 @@ function onVisibility() {
 
 /**
  * Starts audio. Browsers only allow this from a tap, click or key press, so faders call it from
- * their pointerdown and keydown handlers.
+ * their pointer and key handlers. iPhones only count the end of a touch, so it runs on pointerup too.
  */
 export function wakeMixer() {
   if (!graph) {

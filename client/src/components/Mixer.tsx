@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { CHANNELS, FADER_MAX, readLevel, setLevel, useMixer, wakeMixer, type Strip } from "@/lib/mixer/engine";
+import { prefetchStems } from "@/lib/mixer/stems";
 import Fader from "./Fader";
 import SectionHeading from "./SectionHeading";
 import Waveform from "./Waveform";
@@ -37,6 +38,21 @@ function Meter({ meterRef }: { meterRef: (el: HTMLDivElement | null) => void }) 
 export default function Mixer() {
   const { levels, live, loading, track } = useMixer();
   const meters = useRef<Partial<Record<Strip, HTMLDivElement | null>>>({});
+  const board = useRef<HTMLDivElement>(null);
+
+  // Start downloading the track as the board scrolls into view, so it's ready by the first touch.
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry.isIntersecting) return;
+        prefetchStems();
+        observer.disconnect();
+      },
+      { rootMargin: "200px" },
+    );
+    if (board.current) observer.observe(board.current);
+    return () => observer.disconnect();
+  }, []);
 
   // Drive the meters straight from the audio while it plays, falling back gently like real LEDs.
   useEffect(() => {
@@ -74,7 +90,7 @@ export default function Mixer() {
           </p>
         </div>
 
-        <div className="rounded-sm border bg-card p-4 shadow-xl sm:p-5">
+        <div ref={board} className="rounded-sm border bg-card p-4 shadow-xl sm:p-5">
           <div className="flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
             <span>SG-6 · Demo board</span>
             <span className="flex items-center gap-2" aria-live="polite">

@@ -68,6 +68,7 @@ export default function Fader({
       aria-valuetext={`${label} ${value.toFixed(1)}`}
       onPointerDown={onPointerDown}
       onPointerMove={(event) => event.currentTarget.hasPointerCapture(event.pointerId) && fromPointer(event)}
+      onPointerUp={onWake}
       onKeyDown={onKeyDown}
       className="group relative h-full w-8 cursor-grab touch-none select-none rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing sm:w-10"
       data-testid={`fader-${label.toLowerCase()}`}
