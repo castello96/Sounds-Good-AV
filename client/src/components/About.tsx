@@ -30,16 +30,17 @@ export default function About() {
           <SectionHeading channel="03" label="Behind the board" title="Hi, I'm Nick." />
           <div className="max-w-2xl space-y-4 text-lg text-muted-foreground">
             <p>
-              I sing, write songs, act and play in a band, so I've spent a lot of time on stage trusting the sound to
-              just work. By day, I'm a software engineer.
+              I've been involved in music and theatre for most of my life, whether it's singing, songwriting, acting, 
+              or playing in a band. I also happen to be a software engineer, so I've always had an interest in the 
+              technical side of things.
             </p>
             <p>
-              I started doing AV in college and fell in love with it. It sits right where music, technology and
-              engineering meet, which is pretty much everything I care about.
+              I first got into live sound in college and quickly realized it was the perfect combination of my interests 
+              in music, technology, and engineering. These days, I run sound for my band and local theatre productions. 
             </p>
             <p>
-              Today I run live sound for my band and for community theatre. Sounds Good AV brings that same care to your
-              event, whatever the size.
+              Having spent so much time on both sides of the microphone, I know how much good sound matters to 
+              a performance. That's the perspective I bring to every event with Sounds Good AV.
             </p>
           </div>
           <p className="mt-8 font-display text-2xl font-bold uppercase">I've been on both sides of the mic.</p>
