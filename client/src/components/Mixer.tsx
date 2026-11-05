@@ -36,7 +36,7 @@ function Meter({ meterRef }: { meterRef: (el: HTMLDivElement | null) => void }) 
 }
 
 export default function Mixer() {
-  const { levels, live, loading, track } = useMixer();
+  const { levels, live, loading, stalled, track } = useMixer();
   const meters = useRef<Partial<Record<Strip, HTMLDivElement | null>>>({});
   const board = useRef<HTMLDivElement>(null);
 
@@ -90,7 +90,8 @@ export default function Mixer() {
           </p>
         </div>
 
-        <div ref={board} className="rounded-sm border bg-card p-4 shadow-xl sm:p-5">
+        {/* A tap anywhere on the board also starts the sound, for phones that didn't count the drag. */}
+        <div ref={board} onClick={wakeMixer} className="rounded-sm border bg-card p-4 shadow-xl sm:p-5">
           <div className="flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
             <span>SG-6 · Demo board</span>
             <span className="flex items-center gap-2" aria-live="polite">
@@ -98,14 +99,14 @@ export default function Mixer() {
                 aria-hidden
                 className={cn(
                   "h-2 w-2 rounded-full",
-                  loading
+                  loading || stalled
                     ? "animate-pulse bg-primary"
                     : live
                       ? "animate-pulse bg-red-500 shadow-[0_0_8px_theme(colors.red.500)]"
                       : "bg-muted-foreground/40",
                 )}
               />
-              {loading ? "Loading" : live ? "Live" : "Standby"}
+              {loading ? "Loading" : live ? "Live" : stalled ? "Tap to play" : "Standby"}
             </span>
           </div>
 
