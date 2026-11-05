@@ -2,5 +2,5 @@
 export const BUSINESS = {
   name: "Sounds Good AV Rentals",
   email: "info@soundsgoodav.com",
-  phone: "(516) 382-4385",
+  phone: "(516) 836-7079",
 };
