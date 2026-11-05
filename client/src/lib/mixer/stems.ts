@@ -1,16 +1,23 @@
 import type { Channel } from "./engine";
 
+// Phones get mono AAC at 80 kbps, about 320 KB a stem instead of 1.3 MB. They're quicker to
+// download and decode, and take half the memory once decoded, which iPhones need. Made from the
+// MP3s by averaging both channels and encoding with afconvert.
+const PHONE = typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
+const FOLDER = PHONE ? "/audio/phone" : "/audio";
+const EXT = PHONE ? "m4a" : "mp3";
+
 /**
  * Recorded stems for the mixer: "Rose" by Kaleia, used with her permission. One file per
  * channel in client/public/audio, all cut from the same 12 bars. Set this to null to go back to
- * the placeholder loop made in the browser. If any fail to load, the mixer falls back to it.
+ * the placeholder loop made in the browser. If none load, the mixer falls back to it.
  */
 export const STEMS: Record<Channel, string> | null = {
-  drums: "/audio/drums.mp3",
-  bass: "/audio/bass.mp3",
-  keys: "/audio/keys.mp3",
-  guitar: "/audio/guitar.mp3",
-  vocals: "/audio/vocals.mp3",
+  drums: `${FOLDER}/drums.${EXT}`,
+  bass: `${FOLDER}/bass.${EXT}`,
+  keys: `${FOLDER}/keys.${EXT}`,
+  guitar: `${FOLDER}/guitar.${EXT}`,
+  vocals: `${FOLDER}/vocals.${EXT}`,
 };
 
 // Where the music sits in each file, in frames at 44.1 kHz, from the gapless info in the files
@@ -20,7 +27,7 @@ const SOURCE_RATE = 44_100;
 const LOOP_FRAMES = 1_383_529;
 // MP3 pads the music on both ends. Safari strips the padding when it decodes and Chrome doesn't,
 // leaving 1,057 frames before the music (528 from the encoder plus 529 from the decoder) and
-// 1,270 after it.
+// 1,270 after it. Both browsers strip it from the AAC files, so those start at 0.
 const PADDING_BEFORE = 1_057;
 const PADDING_AFTER = 1_270;
 
@@ -49,29 +56,67 @@ function fadeEnds(buffer: AudioBuffer, start: number, end: number) {
   }
 }
 
-export async function startStems(ctx: AudioContext, outputs: Record<Channel, AudioNode>, urls: Record<Channel, string>) {
-  const entries = Object.entries(urls) as [Channel, string][];
-  const decoded = await Promise.all(
-    entries.map(async ([channel, url]) => {
-      const response = await fetch(url);
+const downloads = new Map<string, Promise<ArrayBuffer>>();
+
+function download(url: string) {
+  let bytes = downloads.get(url);
+  if (!bytes) {
+    bytes = fetch(url).then((response) => {
       if (!response.ok) throw new Error(`Couldn't load ${url}`);
-      return [channel, await ctx.decodeAudioData(await response.arrayBuffer())] as const;
+      return response.arrayBuffer();
+    });
+    // Let a failed download be tried again.
+    bytes.catch(() => downloads.delete(url));
+    downloads.set(url, bytes);
+  }
+  return bytes;
+}
+
+/**
+ * Starts downloading the stems before anyone touches the board. Decoding still waits for a
+ * tap, since that needs the audio context.
+ */
+export function prefetchStems() {
+  if (STEMS) Object.values(STEMS).forEach((url) => download(url).catch(() => {}));
+}
+
+/**
+ * Plays each stem as soon as it's decoded, joining the others in time, so a slow or failed one
+ * doesn't hold up the rest. `onPlaying` runs when the first one starts. Rejects only if none load.
+ */
+export async function startStems(
+  ctx: AudioContext,
+  outputs: Record<Channel, AudioNode>,
+  urls: Record<Channel, string>,
+  onPlaying: () => void,
+) {
+  const length = LOOP_FRAMES / SOURCE_RATE;
+  // When the loop first started, on the audio clock. Later stems start partway through to match.
+  let origin: number | null = null;
+
+  const results = await Promise.allSettled(
+    (Object.entries(urls) as [Channel, string][]).map(async ([channel, url]) => {
+      const bytes = await download(url);
+      // Decoding takes the bytes, so they can't be used twice.
+      downloads.delete(url);
+      const buffer = await ctx.decodeAudioData(bytes);
+      const start = loopStart(buffer);
+      const end = start + length;
+      fadeEnds(buffer, start, end);
+
+      const at = ctx.currentTime + 0.1;
+      if (origin === null) {
+        origin = at;
+        onPlaying();
+      }
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.loop = true;
+      source.loopStart = start;
+      source.loopEnd = end;
+      source.connect(outputs[channel]);
+      source.start(at, start + ((at - origin) % length));
     }),
   );
-
-  const start = loopStart(decoded[0][1]);
-  const end = start + LOOP_FRAMES / SOURCE_RATE;
-
-  // Start every stem on the same tick so they stay locked together.
-  const at = ctx.currentTime + 0.1;
-  for (const [channel, buffer] of decoded) {
-    fadeEnds(buffer, start, end);
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
-    source.loop = true;
-    source.loopStart = start;
-    source.loopEnd = end;
-    source.connect(outputs[channel]);
-    source.start(at, start);
-  }
+  if (results.every((result) => result.status === "rejected")) throw new Error("No stems loaded");
 }
