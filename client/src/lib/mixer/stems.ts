@@ -1,7 +1,7 @@
 import type { Channel } from "./engine";
 
 /**
- * Recorded stems for the mixer: "Rose" by Kaleia, used with her permission. One mono file per
+ * Recorded stems for the mixer: "Rose" by Kaleia, used with her permission. One file per
  * channel in client/public/audio, all cut from the same 12 bars. Set this to null to go back to
  * the placeholder loop made in the browser. If any fail to load, the mixer falls back to it.
  */
@@ -13,24 +13,40 @@ export const STEMS: Record<Channel, string> | null = {
   vocals: "/audio/vocals.mp3",
 };
 
-// The musical length of the loop. MP3 pads both ends of a file with a few milliseconds of
-// silence, so the loop is cut to this length rather than the length of the decoded file.
-const LOOP_SECONDS = 31;
+// Where the music sits in each file, in frames at 44.1 kHz, from the gapless info in the files
+// (afinfo prints it). Every stem was exported the same way. If the files change, update these.
+const SOURCE_RATE = 44_100;
+// 12 bars at 91.8 BPM: the whole loop.
+const LOOP_FRAMES = 1_383_529;
+// MP3 pads the music on both ends. Safari strips the padding when it decodes and Chrome doesn't,
+// leaving 1,057 frames before the music (528 from the encoder plus 529 from the decoder) and
+// 1,270 after it.
+const PADDING_BEFORE = 1_057;
+const PADDING_AFTER = 1_270;
 
-// Encoder padding at the start of an MP3 is never longer than this.
-const MAX_PADDING_SECONDS = 0.06;
+/** Where the loop starts in a decoded stem, in seconds, however much padding the browser kept. */
+function loopStart(buffer: AudioBuffer) {
+  const extra = buffer.duration - LOOP_FRAMES / SOURCE_RATE;
+  return Math.min(PADDING_BEFORE / SOURCE_RATE, Math.max(0, extra - PADDING_AFTER / SOURCE_RATE));
+}
 
-/**
- * Seconds of near silence at the start of a buffer, when it's short enough to be encoder padding.
- * A longer quiet start is part of the music, so it gives 0 and nothing is skipped.
- */
-function leadingSilence(buffer: AudioBuffer, limit: number) {
-  const samples = buffer.getChannelData(0);
-  const end = Math.min(samples.length, Math.ceil(limit * buffer.sampleRate));
-  for (let i = 0; i < end; i++) {
-    if (Math.abs(samples[i]) > 1e-4) return i / buffer.sampleRate;
+// The bass and guitar are still ringing when the loop ends and silent when it starts, which
+// clicks at the seam. A short fade at both ends of the loop smooths it over.
+const FADE_SECONDS = 0.005;
+
+function fadeEnds(buffer: AudioBuffer, start: number, end: number) {
+  const rate = buffer.sampleRate;
+  const fade = Math.round(FADE_SECONDS * rate);
+  const first = Math.round(start * rate);
+  const last = Math.min(buffer.length, Math.round(end * rate)) - 1;
+  for (let c = 0; c < buffer.numberOfChannels; c++) {
+    const samples = buffer.getChannelData(c);
+    for (let i = 0; i < fade; i++) {
+      const gain = i / fade;
+      samples[first + i] *= gain;
+      samples[last - i] *= gain;
+    }
   }
-  return 0;
 }
 
 export async function startStems(ctx: AudioContext, outputs: Record<Channel, AudioNode>, urls: Record<Channel, string>) {
@@ -43,15 +59,13 @@ export async function startStems(ctx: AudioContext, outputs: Record<Channel, Aud
     }),
   );
 
-  // Every stem was padded the same way, so skip the shortest lead-in of any of them. A stem
-  // that comes in later in the bar still lines up, because they all skip the same amount.
-  const start = Math.min(...decoded.map(([, buffer]) => leadingSilence(buffer, MAX_PADDING_SECONDS)));
-  const shortest = Math.min(...decoded.map(([, buffer]) => buffer.duration));
-  const end = Math.min(shortest, start + LOOP_SECONDS);
+  const start = loopStart(decoded[0][1]);
+  const end = start + LOOP_FRAMES / SOURCE_RATE;
 
   // Start every stem on the same tick so they stay locked together.
   const at = ctx.currentTime + 0.1;
   for (const [channel, buffer] of decoded) {
+    fadeEnds(buffer, start, end);
     const source = ctx.createBufferSource();
     source.buffer = buffer;
     source.loop = true;
