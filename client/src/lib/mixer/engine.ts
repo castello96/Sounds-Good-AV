@@ -15,9 +15,16 @@ const DEFAULT_LEVELS: Record<Strip, number> = { drums: 7, bass: 7, keys: 6, guit
 // What the board is playing: the recorded stems, or the placeholder loop while they load or if they fail.
 export type Track = "stems" | "placeholder";
 
-type MixerState = { levels: Record<Strip, number>; live: boolean; loading: boolean; track: Track };
+// `stalled` means mains is up but the browser won't start the audio until someone taps.
+type MixerState = { levels: Record<Strip, number>; live: boolean; loading: boolean; stalled: boolean; track: Track };
 
-let state: MixerState = { levels: { ...DEFAULT_LEVELS }, live: false, loading: false, track: STEMS ? "stems" : "placeholder" };
+let state: MixerState = {
+  levels: { ...DEFAULT_LEVELS },
+  live: false,
+  loading: false,
+  stalled: false,
+  track: STEMS ? "stems" : "placeholder",
+};
 const listeners = new Set<() => void>();
 
 function setState(next: Partial<MixerState>) {
@@ -101,29 +108,52 @@ function build(): Graph | null {
   return built;
 }
 
+let stallTimer: number | undefined;
+
 function updateLive() {
-  const live = !!graph && graph.ctx.state === "running" && state.levels.mains > 0;
+  const running = !!graph && graph.ctx.state === "running";
+  const live = running && state.levels.mains > 0;
   if (live !== state.live) setState({ live });
+
+  // Resuming usually takes a few milliseconds, so only call it stalled if it's still waiting a moment later.
+  window.clearTimeout(stallTimer);
+  if (graph && !running && state.levels.mains > 0 && !document.hidden) {
+    stallTimer = window.setTimeout(() => setState({ stalled: true }), 300);
+  } else if (state.stalled) {
+    setState({ stalled: false });
+  }
 }
 
 // Nothing plays in a background tab.
 function onVisibility() {
   if (!graph) return;
   if (document.hidden) graph.ctx.suspend();
-  else if (state.levels.mains > 0) graph.ctx.resume();
+  else if (state.levels.mains > 0) graph.ctx.resume().catch(() => {});
 }
 
 /**
- * Starts audio. Browsers only allow this from a tap, click or key press, so faders call it from
- * their pointer and key handlers. iPhones only count the end of a touch, so it runs on pointerup too.
+ * Starts audio. Browsers only allow this from a tap, click or key press, so the faders and the
+ * board call it from their pointer, key and click handlers.
+ *
+ * iPhones won't start audio partway through a drag, and mains is still down when a finger first
+ * lands on it. So every touch starts the clock, even with mains down, and plays a silent blip.
+ * Once audio has run, the faders can resume it whenever. With mains down it goes quiet again.
  */
 export function wakeMixer() {
-  if (!graph) {
-    graph = build();
-    // Touching a channel fader first builds the board, but it stays quiet until mains comes up.
-    if (graph && state.levels.mains === 0) suspendTimer = window.setTimeout(() => graph?.ctx.suspend(), 400);
+  if (!graph) graph = build();
+  if (!graph) return;
+  const { ctx } = graph;
+  if (ctx.state !== "running") {
+    const blip = ctx.createBufferSource();
+    blip.buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
+    blip.connect(ctx.destination);
+    blip.start();
+    ctx.resume().catch(() => {});
   }
-  if (graph && graph.ctx.state !== "running" && state.levels.mains > 0) graph.ctx.resume();
+  if (state.levels.mains === 0) {
+    window.clearTimeout(suspendTimer);
+    suspendTimer = window.setTimeout(() => ctx.suspend(), 400);
+  }
 }
 
 export function setLevel(strip: Strip, value: number) {
@@ -139,7 +169,7 @@ export function setLevel(strip: Strip, value: number) {
   if (strip === "mains") {
     window.clearTimeout(suspendTimer);
     if (level > 0) {
-      if (ctx.state !== "running" && !document.hidden) ctx.resume();
+      if (ctx.state !== "running" && !document.hidden) ctx.resume().catch(() => {});
     } else {
       // Give the fade a moment, then stop the clock so the loop picks up where it left off.
       suspendTimer = window.setTimeout(() => ctx.suspend(), 400);
