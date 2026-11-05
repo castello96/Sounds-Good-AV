@@ -6,7 +6,16 @@ import SectionHeading from "./SectionHeading";
 import Waveform from "./Waveform";
 
 const STRIPS: Strip[] = [...CHANNELS, "mains"];
-const LABELS: Record<Strip, string> = { drums: "Drums", bass: "Bass", keys: "Keys", lead: "Lead", mains: "Mains" };
+const LABELS: Record<Strip, string> = {
+  drums: "Drums",
+  bass: "Bass",
+  keys: "Keys",
+  guitar: "Guitar",
+  vocals: "Vocals",
+  mains: "Mains",
+};
+
+const ARTIST_URL = "https://open.spotify.com/artist/2F2CiwEgXu1t8kgQKnCTMr";
 
 /** A level meter: a segmented bar from teal through amber to red. Filled from outside React, every frame. */
 function Meter({ meterRef }: { meterRef: (el: HTMLDivElement | null) => void }) {
@@ -26,7 +35,7 @@ function Meter({ meterRef }: { meterRef: (el: HTMLDivElement | null) => void }) 
 }
 
 export default function Mixer() {
-  const { levels, live } = useMixer();
+  const { levels, live, loading, track } = useMixer();
   const meters = useRef<Partial<Record<Strip, HTMLDivElement | null>>>({});
 
   // Drive the meters straight from the audio while it plays, falling back gently like real LEDs.
@@ -67,16 +76,20 @@ export default function Mixer() {
 
         <div className="rounded-sm border bg-card p-4 shadow-xl sm:p-5">
           <div className="flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-            <span>SG-5 · Demo board</span>
+            <span>SG-6 · Demo board</span>
             <span className="flex items-center gap-2" aria-live="polite">
               <span
                 aria-hidden
                 className={cn(
                   "h-2 w-2 rounded-full",
-                  live ? "animate-pulse bg-red-500 shadow-[0_0_8px_theme(colors.red.500)]" : "bg-muted-foreground/40",
+                  loading
+                    ? "animate-pulse bg-primary"
+                    : live
+                      ? "animate-pulse bg-red-500 shadow-[0_0_8px_theme(colors.red.500)]"
+                      : "bg-muted-foreground/40",
                 )}
               />
-              {live ? "Live" : "Standby"}
+              {loading ? "Loading" : live ? "Live" : "Standby"}
             </span>
           </div>
 
@@ -84,7 +97,7 @@ export default function Mixer() {
             <Waveform className="h-20 w-full sm:h-24" />
           </div>
 
-          <div className="mt-4 grid grid-cols-5">
+          <div className="mt-4 grid grid-cols-6">
             {STRIPS.map((strip, index) => {
               const mains = strip === "mains";
               const prompt = mains && levels.mains === 0;
@@ -94,10 +107,10 @@ export default function Mixer() {
                   <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
                     {mains ? "Main" : `CH${index + 1}`}
                   </p>
-                  <p className={cn("font-display text-sm font-bold uppercase", mains && "text-primary-text")}>
+                  <p className={cn("font-display text-xs font-bold uppercase sm:text-sm", mains && "text-primary-text")}>
                     {LABELS[strip]}
                   </p>
-                  <div className="mt-2 flex h-48 items-stretch gap-1.5 py-[18px] sm:h-56">
+                  <div className="mt-2 flex h-48 items-stretch gap-1 py-[18px] sm:h-56 sm:gap-1.5">
                     <Meter meterRef={(el) => { meters.current[strip] = el; }} />
                     <Fader
                       label={LABELS[strip]}
@@ -122,7 +135,22 @@ export default function Mixer() {
           </div>
 
           <p className="mt-4 border-t pt-3 font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-            Now playing: house loop
+            Now playing:{" "}
+            {track === "stems" ? (
+              <>
+                Rose -{" "}
+                <a
+                  href={ARTIST_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-foreground underline decoration-primary underline-offset-2 hover:text-primary-text"
+                >
+                  Kaleia
+                </a>
+              </>
+            ) : (
+              "house loop"
+            )}
           </p>
         </div>
       </div>
