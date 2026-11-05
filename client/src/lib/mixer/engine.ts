@@ -2,19 +2,22 @@ import { useSyncExternalStore } from "react";
 import { startPlaceholderLoop } from "./loop";
 import { STEMS, startStems } from "./stems";
 
-export const CHANNELS = ["drums", "bass", "keys", "lead"] as const;
+export const CHANNELS = ["drums", "bass", "keys", "guitar", "vocals"] as const;
 export type Channel = (typeof CHANNELS)[number];
 export type Strip = Channel | "mains";
 
 // Mains goes to 11. It's one louder, and the limiter keeps it clean.
-export const FADER_MAX: Record<Strip, number> = { drums: 10, bass: 10, keys: 10, lead: 10, mains: 11 };
+export const FADER_MAX: Record<Strip, number> = { drums: 10, bass: 10, keys: 10, guitar: 10, vocals: 10, mains: 11 };
 
 // Mains starts down, so nothing plays until a visitor pushes it up.
-const DEFAULT_LEVELS: Record<Strip, number> = { drums: 7, bass: 7, keys: 6, lead: 6, mains: 0 };
+const DEFAULT_LEVELS: Record<Strip, number> = { drums: 7, bass: 7, keys: 6, guitar: 6, vocals: 7, mains: 0 };
 
-type MixerState = { levels: Record<Strip, number>; live: boolean };
+// What the board is playing: the recorded stems, or the placeholder loop while they load or if they fail.
+export type Track = "stems" | "placeholder";
 
-let state: MixerState = { levels: { ...DEFAULT_LEVELS }, live: false };
+type MixerState = { levels: Record<Strip, number>; live: boolean; loading: boolean; track: Track };
+
+let state: MixerState = { levels: { ...DEFAULT_LEVELS }, live: false, loading: false, track: STEMS ? "stems" : "placeholder" };
 const listeners = new Set<() => void>();
 
 function setState(next: Partial<MixerState>) {
@@ -64,7 +67,8 @@ function build(): Graph | null {
     drums: analyser(ctx),
     bass: analyser(ctx),
     keys: analyser(ctx),
-    lead: analyser(ctx),
+    guitar: analyser(ctx),
+    vocals: analyser(ctx),
     mains: analyser(ctx),
   };
   mains.connect(limiter).connect(analysers.mains).connect(ctx.destination);
@@ -84,7 +88,13 @@ function build(): Graph | null {
 
   const built = { ctx, channels, mains, analysers };
   if (STEMS) {
-    startStems(ctx, channels, STEMS).catch(() => startPlaceholderLoop(ctx, channels));
+    setState({ loading: true });
+    startStems(ctx, channels, STEMS)
+      .catch(() => {
+        startPlaceholderLoop(ctx, channels);
+        setState({ track: "placeholder" });
+      })
+      .finally(() => setState({ loading: false }));
   } else {
     startPlaceholderLoop(ctx, channels);
   }

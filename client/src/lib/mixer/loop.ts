@@ -1,7 +1,8 @@
 import type { Channel } from "./engine";
 
 // The placeholder track: an 8-bar loop in A minor (Am, F, C, G twice) built from oscillators and
-// noise, so there are no audio files to download. Swapped out for recorded stems in stems.ts.
+// noise, so there are no audio files to download. Plays if the recorded stems in stems.ts fail
+// to load. It has no vocal part, so the vocals fader stays quiet.
 
 const BPM = 100;
 const STEP = 60 / BPM / 4; // one sixteenth note, in seconds
@@ -57,7 +58,7 @@ function envelope(ctx: BaseAudioContext, at: number, peak: number, attack: numbe
 export function startPlaceholderLoop(ctx: BaseAudioContext, out: Record<Channel, AudioNode>) {
   const noise = noiseBuffer(ctx);
 
-  // The lead gets a dotted-eighth echo, so it sounds less like a test tone.
+  // The lead line plays on the guitar channel, with a dotted-eighth echo, so it sounds less like a test tone.
   const echo = ctx.createDelay(1);
   echo.delayTime.value = STEP * 3;
   const feedback = ctx.createGain();
@@ -65,7 +66,7 @@ export function startPlaceholderLoop(ctx: BaseAudioContext, out: Record<Channel,
   const wet = ctx.createGain();
   wet.gain.value = 0.28;
   echo.connect(feedback).connect(echo);
-  echo.connect(wet).connect(out.lead);
+  echo.connect(wet).connect(out.guitar);
 
   const kick = (at: number) => {
     const osc = ctx.createOscillator();
@@ -150,7 +151,7 @@ export function startPlaceholderLoop(ctx: BaseAudioContext, out: Record<Channel,
     filter.frequency.value = 2200;
     const amp = envelope(ctx, at, 0.13, 0.01, length * 0.9, 0.08);
     osc.connect(filter).connect(amp);
-    amp.connect(out.lead);
+    amp.connect(out.guitar);
     amp.connect(echo);
     osc.start(at);
     lfo.start(at);

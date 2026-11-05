@@ -69,7 +69,7 @@ export default function Fader({
       onPointerDown={onPointerDown}
       onPointerMove={(event) => event.currentTarget.hasPointerCapture(event.pointerId) && fromPointer(event)}
       onKeyDown={onKeyDown}
-      className="group relative h-full w-10 cursor-grab touch-none select-none rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
+      className="group relative h-full w-8 cursor-grab touch-none select-none rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing sm:w-10"
       data-testid={`fader-${label.toLowerCase()}`}
     >
       {/* Scale */}
@@ -88,7 +88,7 @@ export default function Fader({
       <div
         aria-hidden
         className={cn(
-          "absolute left-1/2 h-9 w-8 -translate-x-1/2 translate-y-1/2 rounded-[3px] border shadow-md transition-[bottom] duration-75",
+          "absolute left-1/2 h-9 w-7 -translate-x-1/2 translate-y-1/2 rounded-[3px] border shadow-md transition-[bottom] duration-75 sm:w-8",
           "bg-gradient-to-b from-muted to-card",
           accent ? "border-primary/70" : "border-foreground/20",
         )}
